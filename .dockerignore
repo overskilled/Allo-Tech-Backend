@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+.env
+.env.local
+*.log
+.git
+.gitignore
+.vscode
+.idea
+test
+**/*.spec.ts
+uploads
