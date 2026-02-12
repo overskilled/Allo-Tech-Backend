@@ -1,0 +1,6 @@
+nest-cli.json
+dist
+coverage
+.env
+.env.local
+*.log

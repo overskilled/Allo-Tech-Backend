@@ -1,0 +1,1210 @@
+// AlloTech Prisma Schema
+// Platform connecting clients with qualified technicians
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// ENUMS
+// ===========================================
+
+enum UserRole {
+  CLIENT
+  TECHNICIAN
+  MANAGER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  TRIAL
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum LicenseStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum NeedStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CandidatureStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum NeedUrgency {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum NotificationType {
+  APPOINTMENT
+  MESSAGE
+  QUOTATION
+  PAYMENT
+  SYSTEM
+  RATING
+  NEED
+  LICENSE
+}
+
+enum LicensePlan {
+  BASIC
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+}
+
+enum PaymentProvider {
+  PAWAPAY
+  PAYPAL
+}
+
+enum MobileMoneyOperator {
+  MTN_MOMO
+  ORANGE_MONEY
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  TECHNICAL
+  PAYMENT
+  ACCOUNT
+  SERVICE
+  OTHER
+}
+
+// ===========================================
+// USER & AUTHENTICATION
+// ===========================================
+
+model User {
+  id                String      @id @default(uuid())
+  email             String      @unique
+  passwordHash      String?
+  firstName         String
+  lastName          String
+  dateOfBirth       DateTime?
+  phone             String?
+  profileImage      String?
+  role              UserRole    @default(CLIENT)
+  status            UserStatus  @default(PENDING_VERIFICATION)
+
+  // OAuth
+  googleId          String?     @unique
+  authProvider      String      @default("local") // local, google
+
+  // Email verification
+  emailVerified     Boolean     @default(false)
+  emailVerifyToken  String?
+  emailVerifyExpires DateTime?
+
+  // Password reset
+  passwordResetToken String?
+  passwordResetExpires DateTime?
+
+  // Timestamps
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  lastLoginAt       DateTime?
+
+  // Relations
+  clientProfile     ClientProfile?
+  technicianProfile TechnicianProfile?
+  license           License?
+
+  // As client
+  needsCreated      Need[]              @relation("ClientNeeds")
+  appointmentsAsClient Appointment[]    @relation("ClientAppointments")
+  ratingsGiven      Rating[]            @relation("RatingsGiven")
+  ratingsReceived   Rating[]            @relation("RatingsReceived")
+  messagesAsSender  Message[]           @relation("MessageSender")
+  messagesAsReceiver Message[]          @relation("MessageReceiver")
+  notifications     Notification[]
+  refreshTokens     RefreshToken[]
+  favorites         Favorite[]          @relation("ClientFavorites")
+  favoritedBy       Favorite[]          @relation("TechnicianFavorites")
+  paymentsAsClient  Payment[]           @relation("ClientPayments")
+  paymentsAsTechnician Payment[]        @relation("TechnicianPayments")
+  candidatures      Candidature[]       @relation("TechnicianCandidatures")
+  realizations      Realization[]
+  appointmentsAsTechnician Appointment[]    @relation("TechnicianAppointments")
+  quotations        Quotation[]
+
+  // Team memberships
+  teamMemberships   TeamMember[]
+  teamsCreated      Team[]              @relation("TeamCreator")
+
+  @@index([email])
+  @@index([googleId])
+  @@index([role])
+  @@index([status])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  token       String    @unique
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ===========================================
+// FAVORITES
+// ===========================================
+
+model Favorite {
+  id            String    @id @default(uuid())
+  clientId      String
+  client        User      @relation("ClientFavorites", fields: [clientId], references: [id], onDelete: Cascade)
+
+  technicianId  String
+  technician    User      @relation("TechnicianFavorites", fields: [technicianId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime  @default(now())
+
+  @@unique([clientId, technicianId])
+  @@index([clientId])
+  @@index([technicianId])
+}
+
+// ===========================================
+// CLIENT PROFILE
+// ===========================================
+
+model ClientProfile {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Location
+  address         String?
+  neighborhood    String?   // Quartier
+  city            String?
+  latitude        Float?
+  longitude       Float?
+
+  // Preferences
+  preferredLanguage String  @default("fr")
+  notificationsEnabled Boolean @default(true)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// ===========================================
+// TECHNICIAN PROFILE
+// ===========================================
+
+model TechnicianProfile {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Professional info
+  profession        String
+  specialties       String    // JSON array stored as string
+  studies           String?
+  certifications    String?   // JSON array stored as string
+  yearsExperience   Int       @default(0)
+  bio               String?   @db.Text
+
+  // Location
+  address           String?
+  neighborhood      String?
+  city              String?
+  latitude          Float?
+  longitude         Float?
+  serviceRadius     Int       @default(10) // in km
+
+  // Verification
+  isVerified        Boolean   @default(false)
+  verifiedAt        DateTime?
+  identityDocumentUrl String?
+
+  // Stats (denormalized for performance)
+  totalJobs         Int       @default(0)
+  completedJobs     Int       @default(0)
+  avgRating         Float     @default(0)
+  totalRatings      Int       @default(0)
+  satisfiedClients  Int       @default(0)
+  unsatisfiedClients Int      @default(0)
+
+  // Settings
+  isAvailable       Boolean   @default(true)
+  availableFrom     String?   // Time string "09:00"
+  availableTo       String?   // Time string "18:00"
+  workDays          String    @default("[1,2,3,4,5]") // JSON array of day numbers
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  recommendations   Recommendation[]    @relation("RecommendedTechnician")
+  recommendedBy     Recommendation[]    @relation("RecommenderTechnician")
+
+  @@index([userId])
+  @@index([isVerified])
+  @@index([city])
+  @@index([avgRating])
+}
+
+// ===========================================
+// LICENSE & PAYMENTS
+// ===========================================
+
+model License {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status        LicenseStatus @default(TRIAL)
+  plan          String        @default("basic") // basic, premium, enterprise
+
+  trialStartDate DateTime?
+  trialEndDate   DateTime?
+  startDate     DateTime?
+  endDate       DateTime?
+
+  autoRenew     Boolean       @default(false)
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  payments      Payment[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  licenseId       String?
+  license         License?      @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  clientId        String?
+  client          User?         @relation("ClientPayments", fields: [clientId], references: [id])
+
+  technicianId    String?
+  technician      User?         @relation("TechnicianPayments", fields: [technicianId], references: [id])
+
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("XAF")
+  status          PaymentStatus @default(PENDING)
+
+  paymentMethod   String?       // stripe, paypal, mobile_money
+  transactionId   String?
+  paymentDetails  String?       @db.Text // JSON
+
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([licenseId])
+  @@index([clientId])
+  @@index([technicianId])
+  @@index([status])
+}
+
+// ===========================================
+// NEEDS (SERVICE REQUESTS)
+// ===========================================
+
+model NeedCategory {
+  id            String    @id @default(uuid())
+  name          String    @unique
+  description   String?
+  icon          String?
+  imageUrl      String?
+  isActive      Boolean   @default(true)
+  order         Int       @default(0)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  needs         Need[]
+  subCategories NeedSubCategory[]
+
+  @@index([isActive])
+  @@index([order])
+}
+
+model NeedSubCategory {
+  id          String       @id @default(uuid())
+  categoryId  String
+  category    NeedCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  icon        String?
+  isActive    Boolean      @default(true)
+  order       Int          @default(0)
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  needs       Need[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model Need {
+  id            String      @id @default(uuid())
+  clientId      String
+  client        User        @relation("ClientNeeds", fields: [clientId], references: [id], onDelete: Cascade)
+
+  categoryId    String
+  category      NeedCategory @relation(fields: [categoryId], references: [id])
+
+  subCategoryId String?
+  subCategory   NeedSubCategory? @relation(fields: [subCategoryId], references: [id])
+
+  title         String
+  description   String      @db.Text
+  urgency       NeedUrgency @default(NORMAL)
+  status        NeedStatus  @default(OPEN)
+
+  // Location
+  address       String?
+  neighborhood  String?
+  city          String?
+  latitude      Float?
+  longitude     Float?
+
+  // Scheduling preferences
+  preferredDate     DateTime?
+  preferredTimeSlot String?   // "morning", "afternoon", "evening"
+  flexibleSchedule  Boolean   @default(true)
+
+  // Budget
+  budgetMin     Decimal?    @db.Decimal(10, 2)
+  budgetMax     Decimal?    @db.Decimal(10, 2)
+
+  // Images stored as JSON array
+  images        String?     @db.Text
+
+  publishedAt   DateTime?
+  completedAt   DateTime?
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  needImages    NeedImage[]
+  candidatures  Candidature[]
+  appointments  Appointment[]
+  quotations    Quotation[]
+
+  @@index([clientId])
+  @@index([categoryId])
+  @@index([subCategoryId])
+  @@index([status])
+  @@index([city])
+  @@index([urgency])
+}
+
+model NeedImage {
+  id        String    @id @default(uuid())
+  needId    String
+  need      Need      @relation(fields: [needId], references: [id], onDelete: Cascade)
+
+  imageUrl  String
+  caption   String?
+  sortOrder Int       @default(0)
+
+  createdAt DateTime  @default(now())
+
+  @@index([needId])
+}
+
+// ===========================================
+// CANDIDATURES & APPOINTMENTS
+// ===========================================
+
+model Candidature {
+  id            String            @id @default(uuid())
+  needId        String
+  need          Need              @relation(fields: [needId], references: [id], onDelete: Cascade)
+
+  technicianId  String
+  technician    User              @relation("TechnicianCandidatures", fields: [technicianId], references: [id], onDelete: Cascade)
+
+  message       String?           @db.Text
+  proposedDate  DateTime?
+  proposedPrice Decimal?          @db.Decimal(10, 2)
+  status        CandidatureStatus @default(PENDING)
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([needId, technicianId])
+  @@index([needId])
+  @@index([technicianId])
+  @@index([status])
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+
+  needId          String?
+  need            Need?             @relation(fields: [needId], references: [id])
+
+  clientId        String
+  client          User              @relation("ClientAppointments", fields: [clientId], references: [id])
+
+  technicianId    String
+  technician      User              @relation("TechnicianAppointments", fields: [technicianId], references: [id])
+
+  scheduledDate   DateTime
+  scheduledTime   String            // "14:00"
+  duration        Int               @default(60) // minutes
+
+  status          AppointmentStatus @default(PENDING)
+
+  // Location
+  address         String?
+  latitude        Float?
+  longitude       Float?
+
+  notes           String?           @db.Text
+
+  // Tracking
+  technicianStartedAt DateTime?
+  technicianArrivedAt DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancellationReason String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([clientId])
+  @@index([technicianId])
+  @@index([scheduledDate])
+  @@index([status])
+}
+
+// ===========================================
+// QUOTATIONS & REPORTS
+// ===========================================
+
+model Quotation {
+  id              String          @id @default(uuid())
+
+  needId          String
+  need            Need            @relation(fields: [needId], references: [id], onDelete: Cascade)
+
+  technicianId    String
+  technician      User              @relation(fields: [technicianId], references: [id])
+
+  // Assessment
+  stateOfWork     String          @db.Text // État des lieux
+  urgencyLevel    NeedUrgency
+  proposedSolution String         @db.Text
+
+  // Materials
+  materials       String          @db.Text // JSON array of {name, quantity, unitPrice}
+
+  // Pricing
+  laborCost       Decimal         @db.Decimal(10, 2)
+  materialsCost   Decimal         @db.Decimal(10, 2)
+  totalCost       Decimal         @db.Decimal(10, 2)
+  currency        String          @default("XAF")
+
+  status          QuotationStatus @default(DRAFT)
+  validUntil      DateTime?
+
+  // Response
+  clientResponse  String?         @db.Text
+  respondedAt     DateTime?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  images          QuotationImage[]
+
+  @@index([needId])
+  @@index([technicianId])
+  @@index([status])
+}
+
+model QuotationImage {
+  id          String    @id @default(uuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  imageUrl    String
+  caption     String?
+  type        String    @default("site") // site, material, work
+
+  createdAt   DateTime  @default(now())
+
+  @@index([quotationId])
+}
+
+// ===========================================
+// REALIZATIONS (PORTFOLIO)
+// ===========================================
+
+model Realization {
+  id            String    @id @default(uuid())
+  technicianId  String
+  technician    User      @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+
+  title         String
+  description   String?   @db.Text
+  imageUrl      String
+  category      String?
+
+  // Before/After images
+  beforeImages  String?   @db.Text // JSON array
+  afterImages   String?   @db.Text // JSON array
+
+  completedAt   DateTime?
+  isPublic      Boolean   @default(true)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([technicianId])
+  @@index([category])
+}
+
+// ===========================================
+// RATINGS & REVIEWS
+// ===========================================
+
+model Rating {
+  id            String    @id @default(uuid())
+
+  clientId      String
+  client        User      @relation("RatingsGiven", fields: [clientId], references: [id])
+
+  technicianId  String
+  technician    User      @relation("RatingsReceived", fields: [technicianId], references: [id])
+
+  // Rating score (1-5)
+  score         Int       @default(5)
+  comment       String?   @db.Text
+
+  createdAt     DateTime  @default(now())
+
+  @@unique([clientId, technicianId])
+  @@index([technicianId])
+  @@index([clientId])
+}
+
+// ===========================================
+// MESSAGING
+// ===========================================
+
+model Conversation {
+  id            String    @id @default(uuid())
+
+  // Participants stored as JSON array of user IDs
+  participantIds String   @db.Text
+
+  lastMessageAt DateTime?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages      Message[]
+
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id              String    @id @default(uuid())
+
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId        String
+  sender          User      @relation("MessageSender", fields: [senderId], references: [id])
+
+  receiverId      String
+  receiver        User      @relation("MessageReceiver", fields: [receiverId], references: [id])
+
+  content         String    @db.Text
+  imageUrl        String?
+
+  isRead          Boolean   @default(false)
+  readAt          DateTime?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+// ===========================================
+// NOTIFICATIONS
+// ===========================================
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        NotificationType
+  title       String
+  body        String
+  data        String?          @db.Text // JSON
+
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+
+  createdAt   DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ===========================================
+// TEAMS (Technician teams for larger projects)
+// ===========================================
+
+model Team {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+
+  creatorId   String
+  creator     User      @relation("TeamCreator", fields: [creatorId], references: [id])
+
+  isActive    Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  members     TeamMember[]
+
+  @@index([creatorId])
+}
+
+model TeamMember {
+  id        String    @id @default(uuid())
+  teamId    String
+  team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+
+  role      String    @default("member") // leader, member
+  joinedAt  DateTime  @default(now())
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+// ===========================================
+// RECOMMENDATIONS
+// ===========================================
+
+model Recommendation {
+  id                    String    @id @default(uuid())
+
+  recommenderId         String
+  recommender           TechnicianProfile @relation("RecommenderTechnician", fields: [recommenderId], references: [id])
+
+  recommendedId         String
+  recommended           TechnicianProfile @relation("RecommendedTechnician", fields: [recommendedId], references: [id])
+
+  reason                String?   @db.Text
+
+  createdAt             DateTime  @default(now())
+
+  @@unique([recommenderId, recommendedId])
+  @@index([recommendedId])
+}
+
+// ===========================================
+// ADVERTISEMENTS
+// ===========================================
+
+model Advertisement {
+  id          String    @id @default(uuid())
+  title       String
+  description String?   @db.Text
+  imageUrl    String
+  linkUrl     String?
+
+  targetRoles String    @default("[\"CLIENT\",\"TECHNICIAN\"]") // JSON array
+
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean   @default(true)
+
+  impressions Int       @default(0)
+  clicks      Int       @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ===========================================
+// PRODUCT & CATEGORY (Standalone)
+// ===========================================
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?  @db.Text
+  icon        String?
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // For hierarchy
+  parentId    String?
+  parent      Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryToCategory")
+
+  // Relations
+  products        Product[]
+  partnerProducts PartnerProduct[]
+
+  @@index([isActive])
+  @@index([order])
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  price       Decimal  @db.Decimal(10, 2)
+  currency    String   @default("XAF")
+  stock       Int      @default(0)
+  images      String?  @db.Text // JSON array of image URLs
+  
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([isFeatured])
+}
+
+// ===========================================
+// PARTNER PRODUCTS (for technicians)
+// ===========================================
+
+model PartnerProduct {
+  id          String    @id @default(uuid())
+  name        String
+  description String?   @db.Text
+  imageUrl    String?
+
+  partnerName String
+  price       Decimal   @db.Decimal(10, 2)
+  currency    String    @default("XAF")
+
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id])
+  
+  isAvailable Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([categoryId])
+  @@index([isAvailable])
+}
+
+// ===========================================
+// SUPPORT / HELP
+// ===========================================
+
+model SupportTicket {
+  id          String    @id @default(uuid())
+  userId      String
+
+  subject     String
+  description String    @db.Text
+  category    String    // technical, payment, account, other
+
+  status      String    @default("open") // open, in_progress, resolved, closed
+  priority    String    @default("normal") // low, normal, high
+
+  assignedTo  String?   // Manager/Admin ID
+
+  resolvedAt  DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  responses   SupportResponse[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SupportResponse {
+  id          String    @id @default(uuid())
+  ticketId    String
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  responderId String
+  message     String    @db.Text
+  isInternal  Boolean   @default(false)
+
+  createdAt   DateTime  @default(now())
+
+  @@index([ticketId])
+}
+
+// ===========================================
+// SYSTEM SETTINGS
+// ===========================================
+
+model SystemSetting {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  value       String    @db.Text
+  type        String    @default("string") // string, number, boolean, json
+  category    String    @default("general") // general, payments, notifications, features
+  description String?
+  isPublic    Boolean   @default(false) // Can be read without auth
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([category])
+  @@index([isPublic])
+}
+
+// ===========================================
+// PUSH NOTIFICATION TOKENS
+// ===========================================
+
+model DeviceToken {
+  id          String    @id @default(uuid())
+  userId      String
+
+  token       String    @unique
+  platform    String    // ios, android, web
+  deviceInfo  String?   @db.Text // JSON with device details
+
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime  @default(now())
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([token])
+  @@index([isActive])
+}
+
+// ===========================================
+// FEATURED TECHNICIANS (Manager Module)
+// ===========================================
+
+model FeaturedTechnician {
+  id            String    @id @default(uuid())
+  technicianId  String
+
+  featuredBy    String    // Manager ID who featured
+  reason        String?
+
+  startDate     DateTime  @default(now())
+  endDate       DateTime?
+
+  position      Int       @default(0) // Display order
+  isActive      Boolean   @default(true)
+
+  impressions   Int       @default(0)
+  clicks        Int       @default(0)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([technicianId])
+  @@index([isActive])
+  @@index([startDate])
+}
+
+// ===========================================
+// FILE UPLOADS
+// ===========================================
+
+model Upload {
+  id            String    @id @default(uuid())
+  userId        String?   // Uploader
+
+  filename      String
+  originalName  String
+  mimeType      String
+  size          Int       // bytes
+
+  path          String    // Storage path
+  url           String?   // Public URL if available
+
+  provider      String    @default("local") // local, s3, cloudinary
+  bucket        String?   // For cloud storage
+
+  type          String    @default("general") // profile, need, realization, document, quotation
+  entityId      String?   // Related entity ID
+  entityType    String?   // Related entity type
+
+  isPublic      Boolean   @default(false)
+
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([entityId])
+}
+
+// ===========================================
+// ACTIVITY LOGS (Audit Trail)
+// ===========================================
+
+model ActivityLog {
+  id          String    @id @default(uuid())
+  userId      String?   // Actor (null for system actions)
+
+  action      String    // create, update, delete, login, logout, etc.
+  entityType  String    // User, Need, Appointment, etc.
+  entityId    String?
+
+  description String?
+  metadata    String?   @db.Text // JSON with additional data
+
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+// ===========================================
+// LICENSE HISTORY
+// ===========================================
+
+model LicenseHistory {
+  id          String    @id @default(uuid())
+  licenseId   String
+
+  action      String    // created, activated, renewed, expired, cancelled, upgraded, downgraded
+  fromStatus  String?
+  toStatus    String
+  fromPlan    String?
+  toPlan      String?
+
+  paymentId   String?   // Related payment if any
+  notes       String?
+
+  performedBy String?   // Admin/System
+
+  createdAt   DateTime  @default(now())
+
+  @@index([licenseId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ===========================================
+// PAYMENT TRANSACTIONS (Detailed tracking)
+// ===========================================
+
+model PaymentTransaction {
+  id              String    @id @default(uuid())
+  paymentId       String
+
+  type            String    // deposit, payout, refund, fee
+  provider        String    // pawapay, paypal
+
+  externalId      String?   // Provider's transaction ID
+  status          String    // pending, processing, completed, failed
+
+  amount          Decimal   @db.Decimal(10, 2)
+  currency        String    @default("XAF")
+
+  // For mobile money
+  phoneNumber     String?
+  operator        String?   // mtn_momo, orange_money
+
+  // For PayPal
+  paypalOrderId   String?
+  paypalCaptureId String?
+
+  // Response data
+  providerResponse String?  @db.Text // JSON
+  errorMessage    String?
+
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([paymentId])
+  @@index([externalId])
+  @@index([status])
+  @@index([provider])
+}
+
+// ===========================================
+// TECHNICIAN PAYOUTS
+// ===========================================
+
+model TechnicianPayout {
+  id              String    @id @default(uuid())
+  technicianId    String
+
+  amount          Decimal   @db.Decimal(10, 2)
+  currency        String    @default("XAF")
+
+  provider        String    // pawapay
+  phoneNumber     String
+  operator        String    // mtn_momo, orange_money
+
+  status          String    @default("pending") // pending, processing, completed, failed
+
+  externalId      String?   // PawaPay payout ID
+  providerResponse String?  @db.Text
+  errorMessage    String?
+
+  // Related job/appointments
+  relatedJobs     String?   @db.Text // JSON array of appointment IDs
+
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([technicianId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ===========================================
+// WEBHOOKS LOG
+// ===========================================
+
+model WebhookLog {
+  id          String    @id @default(uuid())
+  provider    String    // pawapay, paypal
+  event       String    // Event type
+
+  payload     String    @db.Text // Raw payload
+  headers     String?   @db.Text // Request headers
+
+  status      String    @default("received") // received, processed, failed
+  errorMessage String?
+
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([provider])
+  @@index([event])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ===========================================
+// REPORTING CACHE (For performance)
+// ===========================================
+
+model ReportCache {
+  id          String    @id @default(uuid())
+  reportType  String    // dashboard, revenue, users, etc.
+  period      String    // daily, weekly, monthly
+  dateKey     String    // e.g., "2024-01", "2024-W15"
+
+  data        String    @db.Text // JSON cached data
+
+  generatedAt DateTime  @default(now())
+  expiresAt   DateTime
+
+  @@unique([reportType, period, dateKey])
+  @@index([expiresAt])
+}
