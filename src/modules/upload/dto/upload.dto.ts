@@ -22,6 +22,7 @@ export enum StorageProvider {
   LOCAL = 'local',
   S3 = 's3',
   CLOUDINARY = 'cloudinary',
+  APPWRITE = 'appwrite',
 }
 
 export class UploadFileDto {

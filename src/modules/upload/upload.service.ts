@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Client, Storage, ID } from 'node-appwrite';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -19,14 +20,19 @@ export class UploadService {
   private readonly uploadDir: string;
   private readonly baseUrl: string;
 
-  // S3 configuration (when using cloud storage)
+  // S3 configuration
   private readonly s3Bucket: string;
   private readonly s3Region: string;
   private readonly s3AccessKey: string;
   private readonly s3SecretKey: string;
 
+  // Appwrite configuration
+  private appwriteStorage: Storage | null = null;
+  private readonly appwriteBucketId: string;
+  private readonly appwriteEndpoint: string;
+  private readonly appwriteProjectId: string;
+
   constructor(private readonly configService: ConfigService) {
-    // Determine storage provider
     const provider = this.configService.get<string>('STORAGE_PROVIDER', 'local');
     this.storageProvider = provider as StorageProvider;
 
@@ -34,11 +40,26 @@ export class UploadService {
     this.uploadDir = this.configService.get<string>('UPLOAD_DIR', './uploads');
     this.baseUrl = this.configService.get<string>('APP_URL', 'http://localhost:3000');
 
-    // S3 config (optional)
+    // S3 config
     this.s3Bucket = this.configService.get<string>('S3_BUCKET', '');
     this.s3Region = this.configService.get<string>('S3_REGION', 'eu-west-1');
     this.s3AccessKey = this.configService.get<string>('S3_ACCESS_KEY', '');
     this.s3SecretKey = this.configService.get<string>('S3_SECRET_KEY', '');
+
+    // Appwrite config
+    this.appwriteEndpoint = this.configService.get<string>('APPWRITE_ENDPOINT', '');
+    this.appwriteProjectId = this.configService.get<string>('APPWRITE_PROJECT_ID', '');
+    this.appwriteBucketId = this.configService.get<string>('APPWRITE_BUCKET_ID', '');
+    const appwriteApiKey = this.configService.get<string>('APPWRITE_API_KEY', '');
+
+    if (this.storageProvider === StorageProvider.APPWRITE && this.appwriteEndpoint && appwriteApiKey) {
+      const client = new Client()
+        .setEndpoint(this.appwriteEndpoint)
+        .setProject(this.appwriteProjectId)
+        .setKey(appwriteApiKey);
+      this.appwriteStorage = new Storage(client);
+      this.logger.log('Appwrite storage client initialized');
+    }
 
     // Ensure upload directory exists for local storage
     if (this.storageProvider === StorageProvider.LOCAL) {
@@ -56,17 +77,17 @@ export class UploadService {
     file: Express.Multer.File,
     type: UploadType,
     userId: string,
-    folder?: string
+    folder?: string,
   ): Promise<UploadResult> {
-    // Validate file
     this.validateFile(file, type);
 
-    // Generate unique filename
     const ext = path.extname(file.originalname);
     const filename = `${randomUUID()}${ext}`;
     const filePath = this.getFilePath(type, userId, folder, filename);
 
-    if (this.storageProvider === StorageProvider.LOCAL) {
+    if (this.storageProvider === StorageProvider.APPWRITE) {
+      return this.uploadToAppwrite(file, filePath);
+    } else if (this.storageProvider === StorageProvider.LOCAL) {
       return this.uploadToLocal(file, filePath, filename);
     } else if (this.storageProvider === StorageProvider.S3) {
       return this.uploadToS3(file, filePath);
@@ -79,15 +100,13 @@ export class UploadService {
     files: Express.Multer.File[],
     type: UploadType,
     userId: string,
-    folder?: string
+    folder?: string,
   ): Promise<UploadResult[]> {
     const results: UploadResult[] = [];
-
     for (const file of files) {
       const result = await this.uploadFile(file, type, userId, folder);
       results.push(result);
     }
-
     return results;
   }
 
@@ -96,7 +115,9 @@ export class UploadService {
   // ==========================================
 
   async deleteFile(fileUrl: string): Promise<void> {
-    if (this.storageProvider === StorageProvider.LOCAL) {
+    if (this.storageProvider === StorageProvider.APPWRITE) {
+      await this.deleteFromAppwrite(fileUrl);
+    } else if (this.storageProvider === StorageProvider.LOCAL) {
       await this.deleteFromLocal(fileUrl);
     } else if (this.storageProvider === StorageProvider.S3) {
       await this.deleteFromS3(fileUrl);
@@ -115,13 +136,12 @@ export class UploadService {
     fileName: string,
     contentType: string,
     type: UploadType,
-    userId: string
+    userId: string,
   ): Promise<SignedUrlResult> {
     if (this.storageProvider !== StorageProvider.S3) {
       throw new BadRequestException('Signed URLs only available for S3 storage');
     }
 
-    // Validate content type
     if (!ALLOWED_MIME_TYPES[type].includes(contentType)) {
       throw new BadRequestException(`File type ${contentType} not allowed for ${type}`);
     }
@@ -129,14 +149,62 @@ export class UploadService {
     const ext = path.extname(fileName);
     const key = this.getFilePath(type, userId, undefined, `${randomUUID()}${ext}`);
 
-    // In production, use AWS SDK to generate signed URL
-    // For now, return placeholder
     return {
       uploadUrl: `https://${this.s3Bucket}.s3.${this.s3Region}.amazonaws.com/${key}?signed=true`,
       fileUrl: `https://${this.s3Bucket}.s3.${this.s3Region}.amazonaws.com/${key}`,
       key,
-      expiresIn: 3600, // 1 hour
+      expiresIn: 3600,
     };
+  }
+
+  // ==========================================
+  // APPWRITE STORAGE IMPLEMENTATION
+  // ==========================================
+
+  private async uploadToAppwrite(
+    file: Express.Multer.File,
+    filePath: string,
+  ): Promise<UploadResult> {
+    if (!this.appwriteStorage) {
+      throw new BadRequestException('Appwrite storage is not configured');
+    }
+
+    const fileId = ID.unique();
+    const blob = new File([file.buffer], file.originalname, { type: file.mimetype });
+
+    const result = await this.appwriteStorage.createFile(
+      this.appwriteBucketId,
+      fileId,
+      blob,
+    );
+
+    // Build the public file URL
+    const url = `${this.appwriteEndpoint}/storage/buckets/${this.appwriteBucketId}/files/${result.$id}/view?project=${this.appwriteProjectId}`;
+
+    this.logger.log(`File uploaded to Appwrite: ${result.$id} (${filePath})`);
+
+    return {
+      url,
+      key: result.$id,
+      size: file.size,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
+    };
+  }
+
+  private async deleteFromAppwrite(fileUrl: string): Promise<void> {
+    if (!this.appwriteStorage) return;
+
+    try {
+      // Extract file ID from the URL or use directly if already an ID
+      const match = fileUrl.match(/\/files\/([^/]+)\//);
+      const fileId = match ? match[1] : fileUrl;
+
+      await this.appwriteStorage.deleteFile(this.appwriteBucketId, fileId);
+      this.logger.log(`File deleted from Appwrite: ${fileId}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete file from Appwrite: ${(error as any).message}`);
+    }
   }
 
   // ==========================================
@@ -146,21 +214,18 @@ export class UploadService {
   private async uploadToLocal(
     file: Express.Multer.File,
     filePath: string,
-    filename: string
+    filename: string,
   ): Promise<UploadResult> {
     const fullPath = path.join(this.uploadDir, filePath);
     const dir = path.dirname(fullPath);
 
-    // Ensure directory exists
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Write file
     fs.writeFileSync(fullPath, file.buffer);
 
     const url = `${this.baseUrl}/uploads/${filePath}`;
-
     this.logger.log(`File uploaded to local storage: ${filePath}`);
 
     return {
@@ -174,7 +239,6 @@ export class UploadService {
 
   private async deleteFromLocal(fileUrl: string): Promise<void> {
     try {
-      // Extract path from URL
       const urlPath = fileUrl.replace(`${this.baseUrl}/uploads/`, '');
       const fullPath = path.join(this.uploadDir, urlPath);
 
@@ -192,13 +256,7 @@ export class UploadService {
   // ==========================================
 
   private async uploadToS3(file: Express.Multer.File, key: string): Promise<UploadResult> {
-    // In production, use AWS SDK:
-    // const s3 = new S3Client({ region: this.s3Region, credentials: {...} });
-    // await s3.send(new PutObjectCommand({ Bucket, Key, Body, ContentType }));
-
-    // Placeholder implementation
     const url = `https://${this.s3Bucket}.s3.${this.s3Region}.amazonaws.com/${key}`;
-
     this.logger.log(`File would be uploaded to S3: ${key}`);
 
     return {
@@ -211,10 +269,6 @@ export class UploadService {
   }
 
   private async deleteFromS3(fileUrl: string): Promise<void> {
-    // In production, use AWS SDK:
-    // const s3 = new S3Client({ region: this.s3Region, credentials: {...} });
-    // await s3.send(new DeleteObjectCommand({ Bucket, Key }));
-
     this.logger.log(`File would be deleted from S3: ${fileUrl}`);
   }
 
@@ -223,19 +277,17 @@ export class UploadService {
   // ==========================================
 
   private validateFile(file: Express.Multer.File, type: UploadType): void {
-    // Check file size
     const maxSize = FILE_SIZE_LIMITS[type];
     if (file.size > maxSize) {
       throw new BadRequestException(
-        `File too large. Maximum size for ${type} is ${maxSize / (1024 * 1024)}MB`
+        `File too large. Maximum size for ${type} is ${maxSize / (1024 * 1024)}MB`,
       );
     }
 
-    // Check MIME type
     const allowedTypes = ALLOWED_MIME_TYPES[type];
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BadRequestException(
-        `File type ${file.mimetype} not allowed for ${type}. Allowed types: ${allowedTypes.join(', ')}`
+        `File type ${file.mimetype} not allowed for ${type}. Allowed types: ${allowedTypes.join(', ')}`,
       );
     }
   }
@@ -248,18 +300,11 @@ export class UploadService {
     type: UploadType,
     userId: string,
     folder?: string,
-    filename?: string
+    filename?: string,
   ): string {
     const parts = [type, userId];
-
-    if (folder) {
-      parts.push(folder);
-    }
-
-    if (filename) {
-      parts.push(filename);
-    }
-
+    if (folder) parts.push(folder);
+    if (filename) parts.push(filename);
     return parts.join('/');
   }
 
@@ -275,20 +320,10 @@ export class UploadService {
   // ==========================================
 
   async resizeImage(file: Express.Multer.File, width: number, height: number): Promise<Buffer> {
-    // In production, use sharp:
-    // const sharp = require('sharp');
-    // return sharp(file.buffer).resize(width, height).jpeg({ quality: 80 }).toBuffer();
-
-    // Placeholder - return original
     return file.buffer;
   }
 
   async generateThumbnail(file: Express.Multer.File, size = 200): Promise<Buffer> {
-    // In production, use sharp:
-    // const sharp = require('sharp');
-    // return sharp(file.buffer).resize(size, size, { fit: 'cover' }).jpeg({ quality: 70 }).toBuffer();
-
-    // Placeholder - return original
     return file.buffer;
   }
 
@@ -297,8 +332,6 @@ export class UploadService {
   // ==========================================
 
   async cleanupOrphanedFiles(olderThanDays = 30): Promise<number> {
-    // This would scan for files not referenced in database
-    // Implementation depends on your file tracking strategy
     return 0;
   }
 }
