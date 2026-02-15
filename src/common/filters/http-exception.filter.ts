@@ -53,9 +53,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
           message = 'A record with this value already exists';
           status = HttpStatus.CONFLICT;
           break;
-        case 'P2003':
-          message = 'Foreign key constraint failed';
+        case 'P2003': {
+          const fieldName = (exception.meta as Record<string, unknown>)?.field_name || 'unknown';
+          message = `Foreign key constraint failed on field: ${fieldName}`;
+          this.logger.error(`P2003 FK constraint — field: ${fieldName}, meta: ${JSON.stringify(exception.meta)}`);
           break;
+        }
         case 'P2025':
           message = 'Record not found';
           status = HttpStatus.NOT_FOUND;

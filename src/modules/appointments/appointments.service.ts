@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -12,10 +13,12 @@ import {
   QueryAppointmentsDto,
 } from './dto/appointment.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
-import { AppointmentStatus } from '@prisma/client';
+import { AppointmentStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   // ==========================================
@@ -84,52 +87,65 @@ export class AppointmentsService {
       throw new BadRequestException('Technician has a conflicting appointment at this time');
     }
 
-    const appointment = await this.prisma.appointment.create({
-      data: {
-        clientId,
-        technicianId: dto.technicianId,
-        needId: dto.needId,
-        scheduledDate: new Date(dto.scheduledDate),
-        scheduledTime: dto.scheduledTime,
-        duration,
-        address: dto.address,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        notes: dto.notes,
-        status: 'PENDING',
-      },
-      include: {
-        client: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            profileImage: true,
-            phone: true,
+    try {
+      const appointment = await this.prisma.appointment.create({
+        data: {
+          clientId,
+          technicianId: dto.technicianId,
+          needId: dto.needId || undefined,
+          scheduledDate: new Date(dto.scheduledDate),
+          scheduledTime: dto.scheduledTime,
+          duration,
+          address: dto.address,
+          latitude: dto.latitude ?? undefined,
+          longitude: dto.longitude ?? undefined,
+          notes: dto.notes,
+          status: 'PENDING',
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              profileImage: true,
+              phone: true,
+            },
+          },
+          technician: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              profileImage: true,
+              phone: true,
+            },
+          },
+          need: {
+            select: {
+              id: true,
+              title: true,
+              category: { select: { name: true } },
+            },
           },
         },
-        technician: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            profileImage: true,
-            phone: true,
-          },
-        },
-        need: {
-          select: {
-            id: true,
-            title: true,
-            category: { select: { name: true } },
-          },
-        },
-      },
-    });
+      });
 
-    // TODO: Send notification to technician about new appointment
+      // TODO: Send notification to technician about new appointment
 
-    return appointment;
+      return appointment;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        const field = (error.meta as Record<string, unknown>)?.field_name || 'unknown';
+        this.logger.error(
+          `FK constraint failed creating appointment — clientId: ${clientId}, technicianId: ${dto.technicianId}, needId: ${dto.needId}, field: ${field}`,
+        );
+        throw new BadRequestException(
+          `Cannot create appointment: referenced record not found (${field}). Ensure the need, technician, and your account exist.`,
+        );
+      }
+      throw error;
+    }
   }
 
   async updateAppointment(
