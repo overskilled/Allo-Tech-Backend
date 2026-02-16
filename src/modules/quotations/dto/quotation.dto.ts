@@ -137,6 +137,12 @@ export class AddQuotationImageDto {
   type?: string;
 }
 
+export class SignQuotationDto {
+  @ApiProperty({ description: 'Base64 PNG signature data' })
+  @IsString()
+  signature: string;
+}
+
 export class QueryQuotationsDto extends PaginationDto {
   @ApiPropertyOptional({ enum: QuotationStatus, description: 'Filter by status' })
   @IsOptional()

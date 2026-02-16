@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateQuotationDto,
@@ -186,9 +187,16 @@ export class QuotationsService {
       throw new BadRequestException('Only draft quotations can be submitted');
     }
 
+    const signatureToken = uuidv4();
+    const signatureTokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
     const updated = await this.prisma.quotation.update({
       where: { id: quotationId },
-      data: { status: 'SENT' },
+      data: {
+        status: 'SENT',
+        signatureToken,
+        signatureTokenExpiresAt,
+      },
       include: {
         need: {
           select: {
@@ -206,7 +214,7 @@ export class QuotationsService {
       },
     });
 
-    // TODO: Send notification to client
+    // TODO: Send notification to client with signing link
 
     return this.formatQuotation(updated);
   }
@@ -531,6 +539,107 @@ export class QuotationsService {
     });
 
     return { message: 'Image removed successfully' };
+  }
+
+  // ==========================================
+  // PUBLIC SIGNING OPERATIONS
+  // ==========================================
+
+  async getQuotationByToken(token: string) {
+    const quotation = await this.prisma.quotation.findUnique({
+      where: { signatureToken: token },
+      include: {
+        need: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            urgency: true,
+            address: true,
+            city: true,
+            neighborhood: true,
+            category: { select: { name: true, icon: true } },
+          },
+        },
+        technician: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            profileImage: true,
+            technicianProfile: {
+              select: {
+                profession: true,
+                avgRating: true,
+                isVerified: true,
+              },
+            },
+          },
+        },
+        images: true,
+      },
+    });
+
+    if (!quotation) {
+      throw new NotFoundException('Devis introuvable ou lien invalide');
+    }
+
+    if (quotation.clientSignedAt) {
+      throw new BadRequestException('Ce devis a déjà été signé');
+    }
+
+    if (
+      quotation.signatureTokenExpiresAt &&
+      quotation.signatureTokenExpiresAt < new Date()
+    ) {
+      throw new BadRequestException('Ce lien de signature a expiré');
+    }
+
+    if (quotation.status !== 'SENT') {
+      throw new BadRequestException('Ce devis ne peut plus être signé');
+    }
+
+    return this.formatQuotation(quotation);
+  }
+
+  async signQuotation(token: string, signature: string) {
+    const quotation = await this.prisma.quotation.findUnique({
+      where: { signatureToken: token },
+    });
+
+    if (!quotation) {
+      throw new NotFoundException('Devis introuvable ou lien invalide');
+    }
+
+    if (quotation.clientSignedAt) {
+      throw new BadRequestException('Ce devis a déjà été signé');
+    }
+
+    if (
+      quotation.signatureTokenExpiresAt &&
+      quotation.signatureTokenExpiresAt < new Date()
+    ) {
+      throw new BadRequestException('Ce lien de signature a expiré');
+    }
+
+    if (quotation.status !== 'SENT') {
+      throw new BadRequestException('Ce devis ne peut plus être signé');
+    }
+
+    const updated = await this.prisma.quotation.update({
+      where: { id: quotation.id },
+      data: {
+        clientSignature: signature,
+        clientSignedAt: new Date(),
+        status: 'ACCEPTED',
+        respondedAt: new Date(),
+      },
+    });
+
+    return {
+      message: 'Devis signé avec succès',
+      quotation: this.formatQuotation(updated),
+    };
   }
 
   // ==========================================

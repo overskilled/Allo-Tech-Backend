@@ -103,19 +103,56 @@ export class AuthService {
 
   async googleAuth(dto: GoogleAuthDto) {
     try {
-      const ticket = await this.googleClient.verifyIdToken({
-        idToken: dto.idToken,
-        audience: this.configService.get('GOOGLE_CLIENT_ID'),
-      });
+      let email: string;
+      let sub: string;
+      let givenName: string;
+      let familyName: string;
+      let picture: string | undefined;
 
-      const payload = ticket.getPayload();
-
-      if (!payload || !payload.email) {
-        throw new UnauthorizedException('Invalid Google token');
+      if (dto.idToken) {
+        // Mobile flow: verify ID token directly
+        const ticket = await this.googleClient.verifyIdToken({
+          idToken: dto.idToken,
+          audience: this.configService.get('GOOGLE_CLIENT_ID'),
+        });
+        const payload = ticket.getPayload();
+        if (!payload || !payload.email) {
+          throw new UnauthorizedException('Invalid Google token');
+        }
+        email = payload.email;
+        sub = payload.sub;
+        givenName = payload.given_name || 'User';
+        familyName = payload.family_name || '';
+        picture = payload.picture;
+      } else if (dto.accessToken) {
+        // Web flow: fetch user info using access token
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${dto.accessToken}` },
+        });
+        if (!res.ok) {
+          throw new UnauthorizedException('Invalid Google access token');
+        }
+        const userInfo = (await res.json()) as {
+          email?: string;
+          sub?: string;
+          given_name?: string;
+          family_name?: string;
+          picture?: string;
+        };
+        if (!userInfo.email || !userInfo.sub) {
+          throw new UnauthorizedException('Invalid Google token');
+        }
+        email = userInfo.email;
+        sub = userInfo.sub;
+        givenName = userInfo.given_name || 'User';
+        familyName = userInfo.family_name || '';
+        picture = userInfo.picture;
+      } else {
+        throw new BadRequestException('Either idToken or accessToken is required');
       }
 
       let user = await this.prisma.user.findUnique({
-        where: { email: payload.email },
+        where: { email },
       });
 
       const isNewUser = !user;
@@ -124,12 +161,12 @@ export class AuthService {
         // Create new user from Google data
         user = await this.prisma.user.create({
           data: {
-            email: payload.email,
-            firstName: payload.given_name || 'User',
-            lastName: payload.family_name || '',
-            googleId: payload.sub,
+            email,
+            firstName: givenName,
+            lastName: familyName,
+            googleId: sub,
             authProvider: 'google',
-            profileImage: payload.picture,
+            profileImage: picture,
             emailVerified: true,
             status: UserStatus.PENDING_VERIFICATION, // Still needs to complete profile
           },
@@ -139,10 +176,10 @@ export class AuthService {
         user = await this.prisma.user.update({
           where: { id: user.id },
           data: {
-            googleId: payload.sub,
+            googleId: sub,
             authProvider: 'google',
             emailVerified: true,
-            profileImage: user.profileImage || payload.picture,
+            profileImage: user.profileImage || picture,
           },
         });
       }

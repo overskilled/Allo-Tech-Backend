@@ -245,15 +245,19 @@ export class UsersService {
       throw new BadRequestException('User is not a client');
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const [
       totalNeeds,
       activeNeeds,
       completedNeeds,
       totalAppointments,
-      completedAppointments,
-      totalSpent,
-      favoritesCount,
-      ratingsGiven,
+      upcomingAppointments,
+      totalSpentAgg,
+      favoriteCount,
+      totalReviews,
+      avgRatingAgg,
     ] = await Promise.all([
       this.prisma.need.count({ where: { clientId: userId } }),
       this.prisma.need.count({
@@ -264,7 +268,11 @@ export class UsersService {
       }),
       this.prisma.appointment.count({ where: { clientId: userId } }),
       this.prisma.appointment.count({
-        where: { clientId: userId, status: 'COMPLETED' },
+        where: {
+          clientId: userId,
+          status: { in: ['PENDING', 'CONFIRMED'] },
+          scheduledDate: { gte: today },
+        },
       }),
       this.prisma.payment.aggregate({
         where: { clientId: userId, status: 'COMPLETED' },
@@ -272,22 +280,25 @@ export class UsersService {
       }),
       this.prisma.favorite.count({ where: { clientId: userId } }),
       this.prisma.rating.count({ where: { clientId: userId } }),
+      this.prisma.rating.aggregate({
+        where: { clientId: userId },
+        _avg: { score: true },
+      }),
     ]);
 
+    const totalSpent = Number(totalSpentAgg._sum.amount || 0);
+
     return {
-      needs: {
-        total: totalNeeds,
-        active: activeNeeds,
-        completed: completedNeeds,
-      },
-      appointments: {
-        total: totalAppointments,
-        completed: completedAppointments,
-      },
-      totalSpent: totalSpent._sum.amount || 0,
-      favoritesCount,
-      ratingsGiven,
-      memberSince: user.createdAt,
+      totalNeeds,
+      activeNeeds,
+      completedNeeds,
+      totalAppointments,
+      upcomingAppointments,
+      totalSpent,
+      averageSpent: totalAppointments > 0 ? Math.round(totalSpent / totalAppointments) : 0,
+      totalReviews,
+      averageRating: avgRatingAgg._avg.score || 0,
+      favoriteCount,
     };
   }
 
@@ -388,30 +399,45 @@ export class UsersService {
       throw new BadRequestException('User is not a technician');
     }
 
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
     const [
-      totalCandidatures,
+      pendingCandidatures,
       acceptedCandidatures,
-      totalAppointments,
       completedAppointments,
-      cancelledAppointments,
-      totalEarnings,
-      ratingsCount,
-      avgRating,
-      realizationsCount,
+      totalClientsAgg,
+      totalEarningsAgg,
+      monthlyEarningsAgg,
+      totalRatings,
+      avgRatingAgg,
+      quotationsSent,
+      quotationsAccepted,
     ] = await Promise.all([
-      this.prisma.candidature.count({ where: { technicianId: userId } }),
+      this.prisma.candidature.count({
+        where: { technicianId: userId, status: 'PENDING' },
+      }),
       this.prisma.candidature.count({
         where: { technicianId: userId, status: 'ACCEPTED' },
       }),
-      this.prisma.appointment.count({ where: { technicianId: userId } }),
       this.prisma.appointment.count({
         where: { technicianId: userId, status: 'COMPLETED' },
       }),
-      this.prisma.appointment.count({
-        where: { technicianId: userId, status: 'CANCELLED' },
+      this.prisma.appointment.groupBy({
+        by: ['clientId'],
+        where: { technicianId: userId },
       }),
       this.prisma.payment.aggregate({
         where: { technicianId: userId, status: 'COMPLETED' },
+        _sum: { amount: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: {
+          technicianId: userId,
+          status: 'COMPLETED',
+          createdAt: { gte: monthStart },
+        },
         _sum: { amount: true },
       }),
       this.prisma.rating.count({ where: { technicianId: userId } }),
@@ -419,37 +445,25 @@ export class UsersService {
         where: { technicianId: userId },
         _avg: { score: true },
       }),
-      this.prisma.realization.count({ where: { technicianId: userId } }),
+      this.prisma.quotation.count({
+        where: { technicianId: userId, status: { in: ['SENT', 'ACCEPTED', 'REJECTED'] } },
+      }),
+      this.prisma.quotation.count({
+        where: { technicianId: userId, status: 'ACCEPTED' },
+      }),
     ]);
 
-    const completionRate =
-      totalAppointments > 0 ? Math.round((completedAppointments / totalAppointments) * 100) : 0;
-
-    const acceptanceRate =
-      totalCandidatures > 0 ? Math.round((acceptedCandidatures / totalCandidatures) * 100) : 0;
-
     return {
-      candidatures: {
-        total: totalCandidatures,
-        accepted: acceptedCandidatures,
-        acceptanceRate,
-      },
-      appointments: {
-        total: totalAppointments,
-        completed: completedAppointments,
-        cancelled: cancelledAppointments,
-        completionRate,
-      },
-      earnings: {
-        total: totalEarnings._sum.amount || 0,
-      },
-      ratings: {
-        count: ratingsCount,
-        average: avgRating._avg.score || 0,
-      },
-      realizationsCount,
-      isVerified: user.technicianProfile?.isVerified || false,
-      memberSince: user.createdAt,
+      completedAppointments,
+      totalClients: totalClientsAgg.length,
+      totalRatings,
+      averageRating: avgRatingAgg._avg.score || 0,
+      totalEarnings: Number(totalEarningsAgg._sum.amount || 0),
+      monthlyEarnings: Number(monthlyEarningsAgg._sum.amount || 0),
+      pendingCandidatures,
+      acceptedCandidatures,
+      quotationsSent,
+      quotationsAccepted,
     };
   }
 

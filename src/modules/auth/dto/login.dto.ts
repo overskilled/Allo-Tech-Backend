@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, IsOptional, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class LoginDto {
@@ -13,9 +13,15 @@ export class LoginDto {
 }
 
 export class GoogleAuthDto {
-  @ApiProperty({ description: 'Google ID token from mobile app' })
+  @ApiProperty({ description: 'Google ID token from mobile app', required: false })
   @IsString()
-  idToken: string;
+  @IsOptional()
+  idToken?: string;
+
+  @ApiProperty({ description: 'Google access token from web OAuth flow', required: false })
+  @IsString()
+  @IsOptional()
+  accessToken?: string;
 }
 
 export class RefreshTokenDto {

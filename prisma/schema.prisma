@@ -585,6 +585,12 @@ model Quotation {
   clientResponse  String?         @db.Text
   respondedAt     DateTime?
 
+  // Signature
+  clientSignature          String?   @db.Text   // base64 PNG of drawn signature
+  clientSignedAt           DateTime?
+  signatureToken           String?   @unique    // UUID token for signing link
+  signatureTokenExpiresAt  DateTime?            // token expiry (7 days)
+
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
