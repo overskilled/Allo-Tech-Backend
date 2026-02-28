@@ -15,10 +15,14 @@ import {
 } from './dto/category.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { NeedStatus } from '@prisma/client';
+import { ProximityMatchingService } from './proximity-matching.service';
 
 @Injectable()
 export class NeedsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly proximityMatchingService: ProximityMatchingService,
+  ) {}
 
   // ==========================================
   // CATEGORY OPERATIONS
@@ -248,6 +252,7 @@ export class NeedsService {
         latitude: dto.latitude || user.clientProfile?.latitude,
         longitude: dto.longitude || user.clientProfile?.longitude,
         images: dto.images ? JSON.stringify(dto.images) : null,
+        videoUrl: dto.videoUrl,
         status: 'OPEN',
       },
       include: {
@@ -263,6 +268,13 @@ export class NeedsService {
         },
       },
     });
+
+    // Create proximity broadcast for nearby technician matching
+    try {
+      await this.proximityMatchingService.createBroadcast(need.id);
+    } catch {
+      // Non-blocking: proximity broadcast is best-effort
+    }
 
     return this.formatNeed(need);
   }
@@ -403,6 +415,16 @@ export class NeedsService {
             },
           },
           orderBy: { createdAt: 'desc' },
+        },
+        appointments: {
+          select: {
+            id: true,
+            status: true,
+            technicianCurrentLat: true,
+            technicianCurrentLng: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
         _count: {
           select: { candidatures: true },

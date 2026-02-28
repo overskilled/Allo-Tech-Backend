@@ -144,7 +144,12 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
         client.userId,
         {
           content: payload.content,
+          messageType: payload.messageType,
           imageUrl: payload.imageUrl,
+          fileUrl: payload.fileUrl,
+          fileName: payload.fileName,
+          fileSize: payload.fileSize,
+          duration: payload.duration,
         }
       );
 

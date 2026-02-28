@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma';
 import { AuthModule } from './modules/auth/auth.module';
@@ -8,6 +9,7 @@ import { NeedsModule } from './modules/needs/needs.module';
 import { CandidaturesModule } from './modules/candidatures/candidatures.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { QuotationsModule } from './modules/quotations/quotations.module';
+import { MissionsModule } from './modules/missions/missions.module';
 import { RatingsModule } from './modules/ratings/ratings.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -31,6 +33,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     MailModule, // Global mail service
     SettingsModule, // Global settings
@@ -42,6 +45,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     CandidaturesModule,
     AppointmentsModule,
     QuotationsModule,
+    MissionsModule,
     RatingsModule,
     MessagingModule,
     NotificationsModule,

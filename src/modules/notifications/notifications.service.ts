@@ -92,6 +92,56 @@ const NOTIFICATION_TEMPLATES = {
     title: 'Payment Failed',
     body: (data: any) => `Payment of ${data.amount} ${data.currency} failed`,
   },
+
+  // Proximity matching notifications
+  PROXIMITY_NEED_NEARBY: {
+    title: 'Nouveau besoin à proximité',
+    body: (data: any) => `Un nouveau besoin "${data.needTitle}" a été publié à ${data.distance}km de vous`,
+  },
+
+  // Counter-proposal notifications
+  COUNTER_PROPOSAL_RECEIVED: {
+    title: 'Contre-proposition reçue',
+    body: (data: any) => `Une contre-proposition a été faite sur le devis pour "${data.needTitle}"`,
+  },
+  COUNTER_PROPOSAL_ACCEPTED: {
+    title: 'Contre-proposition acceptée',
+    body: (data: any) => `Votre contre-proposition pour "${data.needTitle}" a été acceptée`,
+  },
+  COUNTER_PROPOSAL_REJECTED: {
+    title: 'Contre-proposition refusée',
+    body: (data: any) => `Votre contre-proposition pour "${data.needTitle}" a été refusée`,
+  },
+
+  // Mission notifications
+  MISSION_CREATED: {
+    title: 'Mission créée',
+    body: (data: any) => `Une nouvelle mission a été créée pour "${data.needTitle}"`,
+  },
+  MISSION_SCHEDULED: {
+    title: 'Mission planifiée',
+    body: (data: any) => `La mission pour "${data.needTitle}" a été planifiée le ${data.date}`,
+  },
+  MISSION_STARTED: {
+    title: 'Mission démarrée',
+    body: (data: any) => `La mission pour "${data.needTitle}" est en cours`,
+  },
+  MISSION_VALIDATION_REQUESTED: {
+    title: 'Validation requise',
+    body: (data: any) => `Le technicien demande la validation de la mission "${data.needTitle}"`,
+  },
+  MISSION_COMPLETED: {
+    title: 'Mission terminée',
+    body: (data: any) => `La mission pour "${data.needTitle}" est terminée`,
+  },
+  MISSION_CANCELLED: {
+    title: 'Mission annulée',
+    body: (data: any) => `La mission pour "${data.needTitle}" a été annulée`,
+  },
+  MISSION_DOCUMENT_ADDED: {
+    title: 'Nouveau document',
+    body: (data: any) => `Un document a été ajouté à la mission "${data.needTitle}"`,
+  },
 };
 
 @Injectable()
@@ -490,6 +540,168 @@ export class NotificationsService {
       title: template.title,
       body: template.body({ amount: data.amount, currency: data.currency }),
       data: { paymentId: data.paymentId },
+    });
+  }
+
+  // ==========================================
+  // MISSION & PIPELINE NOTIFICATION HOOKS
+  // ==========================================
+
+  async notifyProximityNeedNearby(data: {
+    technicianIds: string[];
+    needTitle: string;
+    needId: string;
+    distance: number;
+  }) {
+    if (data.technicianIds.length === 0) return;
+    await this.createBulkNotifications({
+      userIds: data.technicianIds,
+      type: 'PROXIMITY_MATCH',
+      title: NOTIFICATION_TEMPLATES.PROXIMITY_NEED_NEARBY.title,
+      body: NOTIFICATION_TEMPLATES.PROXIMITY_NEED_NEARBY.body({
+        needTitle: data.needTitle,
+        distance: data.distance,
+      }),
+      data: { needId: data.needId },
+    });
+  }
+
+  async notifyCounterProposalReceived(data: {
+    recipientId: string;
+    needTitle: string;
+    quotationId: string;
+    needId: string;
+  }) {
+    await this.createNotification({
+      userId: data.recipientId,
+      type: 'COUNTER_PROPOSAL',
+      title: NOTIFICATION_TEMPLATES.COUNTER_PROPOSAL_RECEIVED.title,
+      body: NOTIFICATION_TEMPLATES.COUNTER_PROPOSAL_RECEIVED.body({ needTitle: data.needTitle }),
+      data: { quotationId: data.quotationId, needId: data.needId },
+    });
+  }
+
+  async notifyCounterProposalResponse(data: {
+    recipientId: string;
+    needTitle: string;
+    accepted: boolean;
+    quotationId: string;
+    needId: string;
+  }) {
+    const template = data.accepted
+      ? NOTIFICATION_TEMPLATES.COUNTER_PROPOSAL_ACCEPTED
+      : NOTIFICATION_TEMPLATES.COUNTER_PROPOSAL_REJECTED;
+
+    await this.createNotification({
+      userId: data.recipientId,
+      type: 'COUNTER_PROPOSAL',
+      title: template.title,
+      body: template.body({ needTitle: data.needTitle }),
+      data: { quotationId: data.quotationId, needId: data.needId },
+    });
+  }
+
+  async notifyMissionCreated(data: {
+    clientId: string;
+    technicianId: string;
+    needTitle: string;
+    missionId: string;
+    needId: string;
+  }) {
+    const userIds = [data.clientId, data.technicianId];
+    await this.createBulkNotifications({
+      userIds,
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_CREATED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_CREATED.body({ needTitle: data.needTitle }),
+      data: { missionId: data.missionId, needId: data.needId },
+    });
+  }
+
+  async notifyMissionScheduled(data: {
+    clientId: string;
+    needTitle: string;
+    date: string;
+    missionId: string;
+  }) {
+    await this.createNotification({
+      userId: data.clientId,
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_SCHEDULED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_SCHEDULED.body({ needTitle: data.needTitle, date: data.date }),
+      data: { missionId: data.missionId },
+    });
+  }
+
+  async notifyMissionStarted(data: {
+    clientId: string;
+    needTitle: string;
+    missionId: string;
+  }) {
+    await this.createNotification({
+      userId: data.clientId,
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_STARTED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_STARTED.body({ needTitle: data.needTitle }),
+      data: { missionId: data.missionId },
+    });
+  }
+
+  async notifyMissionValidationRequested(data: {
+    clientId: string;
+    needTitle: string;
+    missionId: string;
+  }) {
+    await this.createNotification({
+      userId: data.clientId,
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_VALIDATION_REQUESTED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_VALIDATION_REQUESTED.body({ needTitle: data.needTitle }),
+      data: { missionId: data.missionId },
+    });
+  }
+
+  async notifyMissionCompleted(data: {
+    clientId: string;
+    technicianId: string;
+    needTitle: string;
+    missionId: string;
+  }) {
+    await this.createBulkNotifications({
+      userIds: [data.clientId, data.technicianId],
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_COMPLETED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_COMPLETED.body({ needTitle: data.needTitle }),
+      data: { missionId: data.missionId },
+    });
+  }
+
+  async notifyMissionCancelled(data: {
+    recipientId: string;
+    needTitle: string;
+    missionId: string;
+  }) {
+    await this.createNotification({
+      userId: data.recipientId,
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_CANCELLED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_CANCELLED.body({ needTitle: data.needTitle }),
+      data: { missionId: data.missionId },
+    });
+  }
+
+  async notifyMissionDocumentAdded(data: {
+    recipientId: string;
+    needTitle: string;
+    missionId: string;
+    documentId: string;
+  }) {
+    await this.createNotification({
+      userId: data.recipientId,
+      type: 'MISSION',
+      title: NOTIFICATION_TEMPLATES.MISSION_DOCUMENT_ADDED.title,
+      body: NOTIFICATION_TEMPLATES.MISSION_DOCUMENT_ADDED.body({ needTitle: data.needTitle }),
+      data: { missionId: data.missionId, documentId: data.documentId },
     });
   }
 

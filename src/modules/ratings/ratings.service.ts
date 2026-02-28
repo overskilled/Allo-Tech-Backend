@@ -41,43 +41,66 @@ export class RatingsService {
     }
 
     // Verify that client had an interaction with this technician
-    const hasInteraction = await this.prisma.appointment.findFirst({
-      where: {
-        clientId,
-        technicianId: dto.technicianId,
-        status: 'COMPLETED',
-      },
-    });
+    // Check via completed missions first, then fall back to appointments
+    let hasInteraction = false;
+
+    if (dto.missionId) {
+      const mission = await this.prisma.mission.findFirst({
+        where: {
+          id: dto.missionId,
+          clientId,
+          technicianId: dto.technicianId,
+          status: 'COMPLETED',
+        },
+      });
+      hasInteraction = !!mission;
+    }
+
+    if (!hasInteraction) {
+      const completedMission = await this.prisma.mission.findFirst({
+        where: { clientId, technicianId: dto.technicianId, status: 'COMPLETED' },
+      });
+      hasInteraction = !!completedMission;
+    }
+
+    if (!hasInteraction) {
+      const completedAppointment = await this.prisma.appointment.findFirst({
+        where: { clientId, technicianId: dto.technicianId, status: 'COMPLETED' },
+      });
+      hasInteraction = !!completedAppointment;
+    }
 
     if (!hasInteraction) {
       throw new BadRequestException(
-        'You can only rate technicians you have completed an appointment with',
+        'Vous ne pouvez évaluer que les techniciens avec qui vous avez complété une mission',
       );
     }
 
-    // Check for existing rating
+    // Check for existing rating for this mission
     const existing = await this.prisma.rating.findUnique({
       where: {
-        clientId_technicianId: {
+        clientId_technicianId_missionId: {
           clientId,
           technicianId: dto.technicianId,
+          missionId: dto.missionId || null,
         },
       },
     });
 
     if (existing) {
-      throw new BadRequestException('You have already rated this technician');
+      throw new BadRequestException('Vous avez déjà évalué ce technicien pour cette mission');
     }
 
     // Require comment for low scores
     if (dto.score <= 2 && !dto.comment) {
-      throw new BadRequestException('Comment is required for ratings of 2 or below');
+      throw new BadRequestException('Un commentaire est requis pour les notes de 2 ou moins');
     }
 
     const rating = await this.prisma.rating.create({
       data: {
         clientId,
         technicianId: dto.technicianId,
+        missionId: dto.missionId || null,
         score: dto.score,
         comment: dto.comment,
       },

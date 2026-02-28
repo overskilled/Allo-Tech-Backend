@@ -11,6 +11,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export enum UploadType {
   PROFILE = 'profile',
   NEED = 'need',
+  NEED_VIDEO = 'need_video',
   REALIZATION = 'realization',
   QUOTATION = 'quotation',
   DOCUMENT = 'document',
@@ -77,6 +78,7 @@ export interface SignedUrlResult {
 export const FILE_SIZE_LIMITS: Record<UploadType, number> = {
   [UploadType.PROFILE]: 5 * 1024 * 1024, // 5MB
   [UploadType.NEED]: 10 * 1024 * 1024, // 10MB
+  [UploadType.NEED_VIDEO]: 100 * 1024 * 1024, // 100MB
   [UploadType.REALIZATION]: 10 * 1024 * 1024, // 10MB
   [UploadType.QUOTATION]: 10 * 1024 * 1024, // 10MB
   [UploadType.DOCUMENT]: 20 * 1024 * 1024, // 20MB
@@ -88,6 +90,7 @@ export const FILE_SIZE_LIMITS: Record<UploadType, number> = {
 export const ALLOWED_MIME_TYPES: Record<UploadType, string[]> = {
   [UploadType.PROFILE]: ['image/jpeg', 'image/png', 'image/webp'],
   [UploadType.NEED]: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  [UploadType.NEED_VIDEO]: ['video/mp4', 'video/webm', 'video/quicktime', 'video/ogg'],
   [UploadType.REALIZATION]: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   [UploadType.QUOTATION]: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
   [UploadType.DOCUMENT]: [
@@ -99,5 +102,20 @@ export const ALLOWED_MIME_TYPES: Record<UploadType, string[]> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ],
   [UploadType.ADVERTISEMENT]: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-  [UploadType.MESSAGE]: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  [UploadType.MESSAGE]: [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'audio/webm',
+    'audio/aac',
+    'audio/mp4',
+    'audio/mpeg',
+    'audio/ogg',
+    'audio/m4a',
+    'audio/x-m4a',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ],
 };

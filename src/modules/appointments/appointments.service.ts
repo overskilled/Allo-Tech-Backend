@@ -4,6 +4,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -14,12 +16,17 @@ import {
 } from './dto/appointment.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { AppointmentStatus, Prisma } from '@prisma/client';
+import { MissionsService } from '../missions/missions.service';
 
 @Injectable()
 export class AppointmentsService {
   private readonly logger = new Logger(AppointmentsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => MissionsService))
+    private readonly missionsService: MissionsService,
+  ) {}
 
   // ==========================================
   // APPOINTMENT CRUD
@@ -282,13 +289,40 @@ export class AppointmentsService {
       throw new BadRequestException('Can only start confirmed appointments');
     }
 
-    return this.prisma.appointment.update({
+    const updated = await this.prisma.appointment.update({
       where: { id: appointmentId },
       data: {
         status: 'IN_PROGRESS',
         technicianStartedAt: new Date(),
       },
     });
+
+    // Auto-create and start a mission from this appointment
+    try {
+      // First check if there's an existing mission for this need + technician
+      if (appointment.needId) {
+        const existingMission = await this.prisma.mission.findFirst({
+          where: {
+            needId: appointment.needId,
+            technicianId,
+            status: { in: ['PENDING', 'SCHEDULED'] },
+          },
+        });
+        if (existingMission) {
+          await this.missionsService.startMission(existingMission.id, technicianId);
+          this.logger.log(`Existing mission ${existingMission.id} auto-started from appointment ${appointmentId}`);
+          return updated;
+        }
+      }
+
+      // No existing mission found — create one from the appointment
+      const mission = await this.missionsService.createMissionFromAppointment(appointmentId);
+      this.logger.log(`Mission ${mission.id} auto-created and started from appointment ${appointmentId}`);
+    } catch (err) {
+      this.logger.warn(`Failed to auto-create mission for appointment ${appointmentId}: ${err}`);
+    }
+
+    return updated;
   }
 
   async technicianArrived(appointmentId: string, technicianId: string) {

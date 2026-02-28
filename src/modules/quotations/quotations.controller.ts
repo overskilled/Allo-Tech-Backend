@@ -19,13 +19,19 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { QuotationsService } from './quotations.service';
+import { CounterProposalsService } from './counter-proposals.service';
 import {
   CreateQuotationDto,
   UpdateQuotationDto,
   RespondToQuotationDto,
   AddQuotationImageDto,
   QueryQuotationsDto,
+  SignQuotationDto,
 } from './dto/quotation.dto';
+import {
+  CreateCounterProposalDto,
+  RespondCounterProposalDto,
+} from './dto/counter-proposal.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
@@ -34,7 +40,10 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard)
 @Controller({ path: 'quotations', version: '1' })
 export class QuotationsController {
-  constructor(private readonly quotationsService: QuotationsService) {}
+  constructor(
+    private readonly quotationsService: QuotationsService,
+    private readonly counterProposalsService: CounterProposalsService,
+  ) {}
 
   // ==========================================
   // TECHNICIAN ENDPOINTS
@@ -163,5 +172,62 @@ export class QuotationsController {
     @CurrentUser('id') userId: string,
   ) {
     return this.quotationsService.getQuotationById(id, userId);
+  }
+
+  // ==========================================
+  // AUTHENTICATED SIGNING
+  // ==========================================
+
+  @Post(':id/sign')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sign a quotation (Authenticated client)' })
+  @ApiParam({ name: 'id', description: 'Quotation ID' })
+  @ApiResponse({ status: 200, description: 'Quotation signed' })
+  async signQuotationAuthenticated(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: SignQuotationDto,
+  ) {
+    return this.quotationsService.signQuotationAuthenticated(id, userId, dto.signature);
+  }
+
+  // ==========================================
+  // COUNTER-PROPOSAL ENDPOINTS
+  // ==========================================
+
+  @Post(':id/counter-propose')
+  @ApiOperation({ summary: 'Create a counter-proposal on a quotation' })
+  @ApiParam({ name: 'id', description: 'Quotation ID' })
+  @ApiResponse({ status: 201, description: 'Counter-proposal created' })
+  async createCounterProposal(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: CreateCounterProposalDto,
+  ) {
+    return this.counterProposalsService.createCounterProposal(id, userId, dto);
+  }
+
+  @Get(':id/counter-proposals')
+  @ApiOperation({ summary: 'Get counter-proposals for a quotation' })
+  @ApiParam({ name: 'id', description: 'Quotation ID' })
+  @ApiResponse({ status: 200, description: 'Counter-proposals list' })
+  async getCounterProposals(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.counterProposalsService.getCounterProposals(id, userId);
+  }
+
+  @Post('counter-proposals/:cpId/respond')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Respond to a counter-proposal' })
+  @ApiParam({ name: 'cpId', description: 'Counter-proposal ID' })
+  @ApiResponse({ status: 200, description: 'Response recorded' })
+  async respondToCounterProposal(
+    @Param('cpId') cpId: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: RespondCounterProposalDto,
+  ) {
+    return this.counterProposalsService.respondToCounterProposal(cpId, userId, dto);
   }
 }

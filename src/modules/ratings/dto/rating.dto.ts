@@ -14,6 +14,11 @@ export class CreateRatingDto {
   @IsString()
   technicianId: string;
 
+  @ApiPropertyOptional({ description: 'Mission ID (for mission-specific ratings)' })
+  @IsOptional()
+  @IsString()
+  missionId?: string;
+
   @ApiProperty({ description: 'Rating score (1-5)', minimum: 1, maximum: 5 })
   @IsInt()
   @Min(1)

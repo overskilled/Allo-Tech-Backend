@@ -69,9 +69,27 @@ enum AppointmentStatus {
 enum QuotationStatus {
   DRAFT
   SENT
+  COUNTER_PROPOSED
   ACCEPTED
   REJECTED
   EXPIRED
+}
+
+enum MissionStatus {
+  PENDING
+  SCHEDULED
+  IN_PROGRESS
+  PENDING_VALIDATION
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum CounterProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  SUPERSEDED
 }
 
 enum PaymentStatus {
@@ -90,6 +108,9 @@ enum NotificationType {
   RATING
   NEED
   LICENSE
+  MISSION
+  COUNTER_PROPOSAL
+  PROXIMITY_MATCH
 }
 
 enum LicensePlan {
@@ -188,6 +209,10 @@ model User {
   realizations      Realization[]
   appointmentsAsTechnician Appointment[]    @relation("TechnicianAppointments")
   quotations        Quotation[]
+
+  // Missions
+  missionsAsClient     Mission[]          @relation("ClientMissions")
+  missionsAsTechnician Mission[]          @relation("TechnicianMissions")
 
   // Team memberships
   teamMemberships   TeamMember[]
@@ -450,6 +475,9 @@ model Need {
   // Images stored as JSON array
   images        String?     @db.Text
 
+  // Video of the incident (recorded or uploaded)
+  videoUrl      String?
+
   publishedAt   DateTime?
   completedAt   DateTime?
 
@@ -461,6 +489,8 @@ model Need {
   candidatures  Candidature[]
   appointments  Appointment[]
   quotations    Quotation[]
+  missions      Mission[]
+  proximityBroadcast NeedProximityBroadcast?
 
   @@index([clientId])
   @@index([categoryId])
@@ -542,8 +572,16 @@ model Appointment {
   cancelledAt     DateTime?
   cancellationReason String?
 
+  // Real-time location tracking
+  technicianCurrentLat       Float?
+  technicianCurrentLng       Float?
+  technicianCurrentUpdatedAt DateTime?
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+
+  // Reverse relation to Mission
+  mission         Mission?
 
   @@index([clientId])
   @@index([technicianId])
@@ -591,15 +629,22 @@ model Quotation {
   signatureToken           String?   @unique    // UUID token for signing link
   signatureTokenExpiresAt  DateTime?            // token expiry (7 days)
 
+  // Link to mission (for additional quotations during a mission)
+  missionId       String?
+  mission         Mission?        @relation("MissionAdditionalQuotations", fields: [missionId], references: [id])
+
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
   // Relations
   images          QuotationImage[]
+  counterProposals CounterProposal[]
+  primaryMission  Mission?        @relation("MissionPrimaryQuotation")
 
   @@index([needId])
   @@index([technicianId])
   @@index([status])
+  @@index([missionId])
 }
 
 model QuotationImage {
@@ -657,15 +702,20 @@ model Rating {
   technicianId  String
   technician    User      @relation("RatingsReceived", fields: [technicianId], references: [id])
 
+  // Link to mission (allows multiple ratings per technician across different missions)
+  missionId     String?
+  mission       Mission?  @relation("MissionRating", fields: [missionId], references: [id])
+
   // Rating score (1-5)
   score         Int       @default(5)
   comment       String?   @db.Text
 
   createdAt     DateTime  @default(now())
 
-  @@unique([clientId, technicianId])
+  @@unique([clientId, technicianId, missionId])
   @@index([technicianId])
   @@index([clientId])
+  @@index([missionId])
 }
 
 // ===========================================
@@ -678,6 +728,10 @@ model Conversation {
   // Participants stored as JSON array of user IDs
   participantIds String   @db.Text
 
+  // Optional link to mission/appointment that triggered this conversation
+  missionId     String?   @unique
+  mission       Mission?  @relation(fields: [missionId], references: [id])
+
   lastMessageAt DateTime?
 
   createdAt     DateTime  @default(now())
@@ -686,6 +740,7 @@ model Conversation {
   messages      Message[]
 
   @@index([lastMessageAt])
+  @@index([missionId])
 }
 
 model Message {
@@ -701,7 +756,13 @@ model Message {
   receiver        User      @relation("MessageReceiver", fields: [receiverId], references: [id])
 
   content         String    @db.Text
+  messageType     String    @default("text")  // text, image, document, voice
+
   imageUrl        String?
+  fileUrl         String?                      // URL for document/voice files
+  fileName        String?                      // Original file name
+  fileSize        Int?                         // Size in bytes
+  duration        Int?                         // Voice message duration in seconds
 
   isRead          Boolean   @default(false)
   readAt          DateTime?
@@ -1194,6 +1255,141 @@ model WebhookLog {
   @@index([event])
   @@index([status])
   @@index([createdAt])
+}
+
+// ===========================================
+// MISSIONS (Need → Quotation Signed → Mission OR Appointment Started → Mission)
+// ===========================================
+
+model Mission {
+  id              String        @id @default(uuid())
+
+  needId          String?
+  need            Need?         @relation(fields: [needId], references: [id])
+
+  quotationId     String?       @unique
+  quotation       Quotation?    @relation("MissionPrimaryQuotation", fields: [quotationId], references: [id])
+
+  appointmentId   String?       @unique
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id])
+
+  clientId        String
+  client          User          @relation("ClientMissions", fields: [clientId], references: [id])
+
+  technicianId    String
+  technician      User          @relation("TechnicianMissions", fields: [technicianId], references: [id])
+
+  status          MissionStatus @default(PENDING)
+
+  // Scheduling
+  scheduledDate   DateTime?
+  scheduledTime   String?       // "14:00"
+
+  // Lifecycle timestamps
+  startedAt       DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancellationReason String?    @db.Text
+
+  // Both-party validation
+  technicianValidatedAt DateTime?
+  clientValidatedAt     DateTime?
+  technicianNotes       String?  @db.Text
+  clientNotes           String?  @db.Text
+
+  // Location (from need)
+  address         String?
+  latitude        Float?
+  longitude       Float?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  documents       MissionDocument[]
+  additionalQuotations Quotation[] @relation("MissionAdditionalQuotations")
+  ratings         Rating[]      @relation("MissionRating")
+  conversation    Conversation?
+
+  @@index([needId])
+  @@index([clientId])
+  @@index([technicianId])
+  @@index([appointmentId])
+  @@index([status])
+}
+
+model MissionDocument {
+  id          String   @id @default(uuid())
+  missionId   String
+  mission     Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  uploadedBy  String   // userId of uploader
+
+  fileUrl     String
+  fileName    String
+  fileType    String   // image, pdf, document, video
+  caption     String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([missionId])
+  @@index([uploadedBy])
+}
+
+// ===========================================
+// COUNTER-PROPOSALS (Quotation Negotiation)
+// ===========================================
+
+model CounterProposal {
+  id            String               @id @default(uuid())
+
+  quotationId   String
+  quotation     Quotation            @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  proposedBy    String               // userId
+  proposerRole  String               // "CLIENT" or "TECHNICIAN"
+
+  // Proposed changes
+  proposedTotal    Decimal?          @db.Decimal(10, 2)
+  proposedLabor    Decimal?          @db.Decimal(10, 2)
+  proposedMaterials String?          @db.Text  // JSON array of {name, quantity, unitPrice}
+  message          String?           @db.Text
+
+  status        CounterProposalStatus @default(PENDING)
+  respondedAt   DateTime?
+  responseMessage String?            @db.Text
+
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([quotationId])
+  @@index([proposedBy])
+  @@index([status])
+}
+
+// ===========================================
+// PROXIMITY MATCHING (Need Broadcasting)
+// ===========================================
+
+model NeedProximityBroadcast {
+  id              String   @id @default(uuid())
+  needId          String   @unique
+  need            Need     @relation(fields: [needId], references: [id], onDelete: Cascade)
+
+  currentRadius   Int      @default(5)    // km
+  maxRadius       Int      @default(50)   // km
+  expandEvery     Int      @default(20)   // minutes
+  lastExpandedAt  DateTime @default(now())
+  isActive        Boolean  @default(true)
+
+  // JSON array of technician IDs already notified
+  notifiedTechnicianIds String @db.Text @default("[]")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([lastExpandedAt])
 }
 
 // ===========================================

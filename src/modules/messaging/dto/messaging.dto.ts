@@ -3,6 +3,7 @@ import {
   IsOptional,
   IsBoolean,
   IsArray,
+  IsNumber,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -26,10 +27,36 @@ export class SendMessageDto {
   @MaxLength(2000)
   content: string;
 
+  @ApiPropertyOptional({ description: 'Message type', enum: ['text', 'image', 'document', 'voice'] })
+  @IsOptional()
+  @IsString()
+  messageType?: string;
+
   @ApiPropertyOptional({ description: 'Image URL if sending an image' })
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @ApiPropertyOptional({ description: 'File URL for document or voice' })
+  @IsOptional()
+  @IsString()
+  fileUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Original file name' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  fileName?: string;
+
+  @ApiPropertyOptional({ description: 'File size in bytes' })
+  @IsOptional()
+  @IsNumber()
+  fileSize?: number;
+
+  @ApiPropertyOptional({ description: 'Voice message duration in seconds' })
+  @IsOptional()
+  @IsNumber()
+  duration?: number;
 }
 
 export class MarkMessagesReadDto {
@@ -62,7 +89,12 @@ export class QueryMessagesDto extends PaginationDto {
 export class WsMessagePayload {
   conversationId: string;
   content: string;
+  messageType?: string;
   imageUrl?: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  duration?: number;
 }
 
 export class WsTypingPayload {

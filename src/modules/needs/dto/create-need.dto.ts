@@ -96,6 +96,11 @@ export class CreateNeedDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({ description: 'Video URL of the incident (from Appwrite)' })
+  @IsOptional()
+  @IsString()
+  videoUrl?: string;
 }
 
 export class UpdateNeedDto {
@@ -184,6 +189,11 @@ export class UpdateNeedDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({ description: 'Video URL of the incident' })
+  @IsOptional()
+  @IsString()
+  videoUrl?: string;
 }
 
 export class AddNeedImageDto {

@@ -108,7 +108,12 @@ export class MessagingService {
             select: {
               id: true,
               content: true,
+              messageType: true,
               imageUrl: true,
+              fileUrl: true,
+              fileName: true,
+              fileSize: true,
+              duration: true,
               senderId: true,
               createdAt: true,
               isRead: true,
@@ -246,7 +251,12 @@ export class MessagingService {
           senderId,
           receiverId,
           content: dto.content,
+          messageType: dto.messageType || 'text',
           imageUrl: dto.imageUrl,
+          fileUrl: dto.fileUrl,
+          fileName: dto.fileName,
+          fileSize: dto.fileSize,
+          duration: dto.duration,
         },
         include: {
           sender: {
@@ -384,6 +394,50 @@ export class MessagingService {
     });
 
     return { markedCount: result.count };
+  }
+
+  // ==========================================
+  // MISSION-LINKED CONVERSATION
+  // ==========================================
+
+  async createConversationForMission(
+    missionId: string,
+    clientId: string,
+    technicianId: string,
+  ) {
+    // Check if conversation already exists for this mission
+    const existing = await this.prisma.conversation.findUnique({
+      where: { missionId },
+    });
+    if (existing) return existing;
+
+    // Check if a conversation already exists between these two users
+    const allConversations = await this.prisma.conversation.findMany({
+      where: {
+        participantIds: { contains: `"${clientId}"` },
+      },
+    });
+
+    const existingBetweenUsers = allConversations.find((conv) => {
+      const participants = JSON.parse(conv.participantIds);
+      return participants.includes(clientId) && participants.includes(technicianId);
+    });
+
+    if (existingBetweenUsers) {
+      // Link existing conversation to this mission
+      return this.prisma.conversation.update({
+        where: { id: existingBetweenUsers.id },
+        data: { missionId },
+      });
+    }
+
+    // Create new conversation linked to the mission
+    return this.prisma.conversation.create({
+      data: {
+        participantIds: JSON.stringify([clientId, technicianId]),
+        missionId,
+      },
+    });
   }
 
   // ==========================================

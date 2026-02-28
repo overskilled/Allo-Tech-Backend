@@ -129,6 +129,29 @@ export class UploadController {
   }
 
   // ==========================================
+  // NEED VIDEO UPLOAD
+  // ==========================================
+
+  @Post('need-video')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload need video (max 100MB, 5-10s recommended)' })
+  @ApiResponse({ status: 201, description: 'Need video uploaded' })
+  async uploadNeedVideo(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 100 * 1024 * 1024 }), // 100MB
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.uploadService.uploadFile(file, UploadType.NEED_VIDEO, userId);
+  }
+
+  // ==========================================
   // REALIZATION IMAGES UPLOAD
   // ==========================================
 

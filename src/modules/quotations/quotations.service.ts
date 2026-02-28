@@ -1,8 +1,10 @@
 import {
   Injectable,
+  Inject,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  forwardRef,
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -16,10 +18,15 @@ import {
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { QuotationStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { MissionsService } from '../missions/missions.service';
 
 @Injectable()
 export class QuotationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => MissionsService))
+    private readonly missionsService: MissionsService,
+  ) {}
 
   // ==========================================
   // TECHNICIAN OPERATIONS
@@ -636,9 +643,64 @@ export class QuotationsService {
       },
     });
 
+    // Auto-create mission from signed quotation
+    let mission = null;
+    try {
+      mission = await this.missionsService.createMissionFromSignedQuotation(updated.id);
+    } catch {
+      // Mission creation is best-effort from token signing
+    }
+
     return {
       message: 'Devis signé avec succès',
       quotation: this.formatQuotation(updated),
+      mission,
+    };
+  }
+
+  // ==========================================
+  // AUTHENTICATED SIGNING (in-app)
+  // ==========================================
+
+  async signQuotationAuthenticated(quotationId: string, clientId: string, signature: string) {
+    const quotation = await this.prisma.quotation.findUnique({
+      where: { id: quotationId },
+      include: { need: true },
+    });
+
+    if (!quotation) {
+      throw new NotFoundException('Devis introuvable');
+    }
+
+    if (quotation.need.clientId !== clientId) {
+      throw new ForbiddenException('Seul le client peut signer ce devis');
+    }
+
+    if (quotation.clientSignedAt) {
+      throw new BadRequestException('Ce devis a déjà été signé');
+    }
+
+    if (quotation.status !== 'SENT') {
+      throw new BadRequestException('Ce devis ne peut plus être signé');
+    }
+
+    const updated = await this.prisma.quotation.update({
+      where: { id: quotationId },
+      data: {
+        clientSignature: signature,
+        clientSignedAt: new Date(),
+        status: 'ACCEPTED',
+        respondedAt: new Date(),
+      },
+    });
+
+    // Auto-create mission from signed quotation
+    const mission = await this.missionsService.createMissionFromSignedQuotation(updated.id);
+
+    return {
+      message: 'Devis signé avec succès',
+      quotation: this.formatQuotation(updated),
+      mission,
     };
   }
 
