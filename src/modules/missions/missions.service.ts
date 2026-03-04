@@ -530,6 +530,8 @@ export class MissionsService {
           status: true,
           address: true,
           city: true,
+          latitude: true,
+          longitude: true,
           category: { select: { id: true, name: true, icon: true } },
         },
       },
