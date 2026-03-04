@@ -249,11 +249,15 @@ export class AuthService {
         neighborhood: dto.neighborhood,
         city: dto.city,
         address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
       },
       update: {
         neighborhood: dto.neighborhood,
         city: dto.city,
         address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
       },
     });
 
@@ -306,6 +310,8 @@ export class AuthService {
         neighborhood: dto.neighborhood,
         city: dto.city,
         address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
       },
       update: {
         profession: dto.profession,
@@ -315,6 +321,8 @@ export class AuthService {
         neighborhood: dto.neighborhood,
         city: dto.city,
         address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
       },
     });
 

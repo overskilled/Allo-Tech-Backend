@@ -616,6 +616,13 @@ export class MissionsService {
           lastName: true,
           profileImage: true,
           phone: true,
+          technicianProfile: {
+            select: {
+              profession: true,
+              latitude: true,
+              longitude: true,
+            },
+          },
         },
       },
       quotation: {
@@ -677,6 +684,8 @@ export class MissionsService {
               profession: true,
               avgRating: true,
               completedJobs: true,
+              latitude: true,
+              longitude: true,
             },
           },
         },
