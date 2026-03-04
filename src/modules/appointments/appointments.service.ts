@@ -316,10 +316,12 @@ export class AppointmentsService {
       }
 
       // No existing mission found — create one from the appointment
+      this.logger.log(`Creating mission from appointment ${appointmentId} (needId=${appointment.needId}, techId=${technicianId}, clientId=${appointment.clientId})`);
       const mission = await this.missionsService.createMissionFromAppointment(appointmentId);
       this.logger.log(`Mission ${mission.id} auto-created and started from appointment ${appointmentId}`);
     } catch (err) {
-      this.logger.warn(`Failed to auto-create mission for appointment ${appointmentId}: ${err}`);
+      // Log full error details — do NOT swallow silently
+      this.logger.error(`Failed to auto-create mission for appointment ${appointmentId}`, err instanceof Error ? err.stack : String(err));
     }
 
     return updated;
