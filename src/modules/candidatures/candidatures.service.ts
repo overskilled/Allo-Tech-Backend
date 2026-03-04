@@ -3,8 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MissionsService } from '../missions/missions.service';
 import {
   SubmitCandidatureDto,
   UpdateCandidatureDto,
@@ -16,7 +18,12 @@ import { CandidatureStatus } from '@prisma/client';
 
 @Injectable()
 export class CandidaturesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(CandidaturesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly missionsService: MissionsService,
+  ) {}
 
   // ==========================================
   // TECHNICIAN OPERATIONS
@@ -354,14 +361,31 @@ export class CandidaturesService {
       },
     });
 
+    // Auto-create mission when candidature is accepted
+    let mission = null;
+    if (newStatus === 'ACCEPTED') {
+      try {
+        mission = await this.missionsService.createMissionFromCandidature(candidatureId);
+        this.logger.log(
+          `Mission ${mission.id} auto-created from candidature ${candidatureId}`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Failed to auto-create mission from candidature ${candidatureId}: ${err}`,
+          (err as Error).stack,
+        );
+      }
+    }
+
     // TODO: Send notification to technician about response
 
     return {
       candidature: updated,
+      mission,
       message:
         newStatus === 'ACCEPTED'
-          ? 'Candidature accepted. You can now contact the technician.'
-          : 'Candidature rejected.',
+          ? 'Candidature acceptée. La mission a été créée automatiquement.'
+          : 'Candidature refusée.',
     };
   }
 

@@ -93,6 +93,71 @@ export class MissionsService {
   }
 
   // ==========================================
+  // MISSION CREATION (from accepted candidature — direct flow)
+  // ==========================================
+
+  async createMissionFromCandidature(candidatureId: string) {
+    const candidature = await this.prisma.candidature.findUnique({
+      where: { id: candidatureId },
+      include: {
+        need: true,
+        technician: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    if (!candidature) {
+      throw new NotFoundException('Candidature introuvable');
+    }
+
+    if (candidature.status !== 'ACCEPTED') {
+      throw new BadRequestException('La candidature doit être acceptée pour créer une mission');
+    }
+
+    // Check if mission already exists for this need + technician
+    const existing = await this.prisma.mission.findFirst({
+      where: {
+        needId: candidature.needId,
+        technicianId: candidature.technicianId,
+        status: { notIn: ['CANCELLED'] },
+      },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    const mission = await this.prisma.mission.create({
+      data: {
+        needId: candidature.needId,
+        clientId: candidature.need.clientId,
+        technicianId: candidature.technicianId,
+        status: 'IN_PROGRESS',
+        startedAt: new Date(),
+        address: candidature.need.address,
+        latitude: candidature.need.latitude,
+        longitude: candidature.need.longitude,
+      },
+      include: this.missionIncludes(),
+    });
+
+    // Auto-create conversation for this mission
+    try {
+      await this.messagingService.createConversationForMission(
+        mission.id,
+        candidature.need.clientId,
+        candidature.technicianId,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to auto-create conversation for mission ${mission.id}: ${err}`,
+        (err as Error).stack,
+      );
+    }
+
+    return mission;
+  }
+
+  // ==========================================
   // MISSION CREATION (from started appointment)
   // ==========================================
 
