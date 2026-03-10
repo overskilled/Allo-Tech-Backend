@@ -18,6 +18,7 @@ export enum PaymentProvider {
 export enum PaymentPurpose {
   LICENSE = 'license',
   SERVICE = 'service',
+  NEED_DEPOSIT = 'need_deposit',
 }
 
 // PawaPay supported mobile money operators in Cameroon

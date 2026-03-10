@@ -6,6 +6,7 @@ import {
   IsEnum,
   Min,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -64,6 +65,17 @@ export class RespondToCandidatureDto {
   @IsString()
   @MaxLength(500)
   message?: string;
+
+  @ApiPropertyOptional({ description: 'Proposed date (required when accepting)' })
+  @IsOptional()
+  @IsDateString()
+  proposedDate?: string;
+
+  @ApiPropertyOptional({ description: 'Proposed time HH:MM (required when accepting)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/)
+  proposedTime?: string;
 }
 
 export class QueryCandidaturesDto extends PaginationDto {

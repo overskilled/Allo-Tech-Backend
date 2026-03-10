@@ -80,6 +80,18 @@ export class MissionsController {
   // LIFECYCLE ENDPOINTS
   // ==========================================
 
+  @Post(':id/confirm-schedule')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirm mission schedule (Technician)' })
+  @ApiParam({ name: 'id', description: 'Mission ID' })
+  @ApiResponse({ status: 200, description: 'Mission schedule confirmed' })
+  async confirmMissionSchedule(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.missionsService.confirmMissionSchedule(id, userId);
+  }
+
   @Post(':id/schedule')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Schedule a mission (Technician)' })

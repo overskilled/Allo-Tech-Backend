@@ -90,9 +90,10 @@ export class CreateAdditionalQuotationDto {
   @MaxLength(2000)
   stateOfWork: string;
 
-  @ApiProperty({ enum: NeedUrgency, description: 'Urgency level' })
+  @ApiPropertyOptional({ enum: NeedUrgency, description: 'Urgency level (defaults to the need urgency)' })
+  @IsOptional()
   @IsEnum(NeedUrgency)
-  urgencyLevel: NeedUrgency;
+  urgencyLevel?: NeedUrgency;
 
   @ApiProperty({ description: 'Proposed solution' })
   @IsString()

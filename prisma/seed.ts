@@ -17,6 +17,17 @@ const SALT_ROUNDS = 10;
 async function main() {
   console.log('🌱 Starting comprehensive seed...');
 
+  // Clean up transactional data for idempotent re-runs (order matters for FK constraints)
+  console.log('🧹 Cleaning up existing seed data...');
+  await prisma.rating.deleteMany();
+  await prisma.payment.deleteMany();
+  await prisma.quotation.deleteMany();
+  await prisma.appointment.deleteMany();
+  await prisma.candidature.deleteMany();
+  await prisma.need.deleteMany();
+  await prisma.realization.deleteMany();
+  await prisma.license.deleteMany();
+
   // ===========================================
   // 1. SYSTEM SETTINGS
   // ===========================================
@@ -128,42 +139,46 @@ async function main() {
     },
   });
 
-  // Store client location data for creating ClientProfiles
+  // Helper to randomize coordinates around Douala center (4.0511, 9.7679)
+  const randomAround = (center: number, range: number) =>
+    center + (Math.random() - 0.5) * 2 * range;
+
+  // Store client location data for creating ClientProfiles — all around Douala
   const clientLocations = [
     {
-      address: '12 Rue de la Liberté',
+      address: '12 Rue de la Liberté, Bonamoussadi',
       neighborhood: 'Bonamoussadi',
       city: 'Douala',
-      latitude: 4.0511,
-      longitude: 9.7679,
+      latitude: randomAround(4.0650, 0.008),
+      longitude: randomAround(9.7450, 0.008),
     },
     {
-      address: '45 Avenue Kennedy',
-      neighborhood: 'Bastos',
-      city: 'Yaoundé',
-      latitude: 3.8666,
-      longitude: 11.5166,
+      address: '45 Boulevard de la République, Akwa',
+      neighborhood: 'Akwa',
+      city: 'Douala',
+      latitude: randomAround(4.0483, 0.008),
+      longitude: randomAround(9.7043, 0.008),
     },
     {
       address: '8 Quartier Bonaberi',
       neighborhood: 'Bonabéri',
       city: 'Douala',
-      latitude: 4.0698,
-      longitude: 9.6844,
+      latitude: randomAround(4.0698, 0.008),
+      longitude: randomAround(9.6844, 0.008),
     },
     {
-      address: '23 Rue Joss',
-      neighborhood: 'Akwa',
+      address: '23 Rue Joss, Deido',
+      neighborhood: 'Deido',
       city: 'Douala',
-      latitude: 4.0483,
-      longitude: 9.7043,
+      latitude: randomAround(4.0560, 0.008),
+      longitude: randomAround(9.7150, 0.008),
     },
     {
-      address: '67 Avenue Monseigneur Vogt',
-      neighborhood: 'Essos',
-      city: 'Yaoundé',
-      latitude: 3.8734,
-      longitude: 11.5217,
+      address: '67 Avenue Douala Manga Bell, Bonapriso',
+      neighborhood: 'Bonapriso',
+      city: 'Douala',
+      latitude: randomAround(4.0200, 0.008),
+      longitude: randomAround(9.6950, 0.008),
     },
   ];
 
@@ -244,8 +259,16 @@ async function main() {
   // Create ClientProfiles with location data
   console.log('📍 Creating client profiles...');
   for (let i = 0; i < clients.length; i++) {
-    await prisma.clientProfile.create({
-      data: {
+    await prisma.clientProfile.upsert({
+      where: { userId: clients[i].id },
+      update: {
+        address: clientLocations[i].address,
+        neighborhood: clientLocations[i].neighborhood,
+        city: clientLocations[i].city,
+        latitude: clientLocations[i].latitude,
+        longitude: clientLocations[i].longitude,
+      },
+      create: {
         userId: clients[i].id,
         address: clientLocations[i].address,
         neighborhood: clientLocations[i].neighborhood,
@@ -256,42 +279,42 @@ async function main() {
     });
   }
 
-  // Store technician location data
+  // Store technician location data — all around Douala
   const technicianLocations = [
     {
-      address: '10 Rue Manga Bell',
+      address: '10 Rue Manga Bell, Bali',
       neighborhood: 'Bali',
       city: 'Douala',
-      latitude: 4.0614,
-      longitude: 9.7064,
+      latitude: randomAround(4.0614, 0.008),
+      longitude: randomAround(9.7064, 0.008),
     },
     {
-      address: '15 Boulevard de la République',
+      address: '15 Boulevard de la République, Bepanda',
       neighborhood: 'Bepanda',
       city: 'Douala',
-      latitude: 4.0697,
-      longitude: 9.7194,
+      latitude: randomAround(4.0697, 0.008),
+      longitude: randomAround(9.7194, 0.008),
     },
     {
-      address: '7 Carrefour Tam-Tam',
-      neighborhood: 'Mokolo',
-      city: 'Yaoundé',
-      latitude: 3.8605,
-      longitude: 11.5154,
+      address: '7 Carrefour Ndokotti',
+      neighborhood: 'Ndokotti',
+      city: 'Douala',
+      latitude: randomAround(4.0450, 0.008),
+      longitude: randomAround(9.7350, 0.008),
     },
     {
-      address: '33 Rue Franqueville',
+      address: '33 Rue Franqueville, Akwa',
       neighborhood: 'Akwa',
       city: 'Douala',
-      latitude: 4.0503,
-      longitude: 9.7061,
+      latitude: randomAround(4.0503, 0.008),
+      longitude: randomAround(9.7061, 0.008),
     },
     {
-      address: '19 Avenue Charles de Gaulle',
-      neighborhood: 'Bastos',
-      city: 'Yaoundé',
-      latitude: 3.8712,
-      longitude: 11.5203,
+      address: '19 Avenue Makepe',
+      neighborhood: 'Makepe',
+      city: 'Douala',
+      latitude: randomAround(4.0750, 0.008),
+      longitude: randomAround(9.7400, 0.008),
     },
   ];
 

@@ -378,6 +378,9 @@ model Payment {
   technicianId    String?
   technician      User?         @relation("TechnicianPayments", fields: [technicianId], references: [id])
 
+  needId          String?
+  need            Need?         @relation(fields: [needId], references: [id])
+
   amount          Decimal       @db.Decimal(10, 2)
   currency        String        @default("XAF")
   status          PaymentStatus @default(PENDING)
@@ -393,6 +396,7 @@ model Payment {
   @@index([licenseId])
   @@index([clientId])
   @@index([technicianId])
+  @@index([needId])
   @@index([status])
 }
 
@@ -478,6 +482,9 @@ model Need {
   // Video of the incident (recorded or uploaded)
   videoUrl      String?
 
+  // Deposit payment (2000 XAF advance)
+  depositPaymentId  String?
+
   publishedAt   DateTime?
   completedAt   DateTime?
 
@@ -490,6 +497,7 @@ model Need {
   appointments  Appointment[]
   quotations    Quotation[]
   missions      Mission[]
+  payments      Payment[]
   proximityBroadcast NeedProximityBroadcast?
 
   @@index([clientId])

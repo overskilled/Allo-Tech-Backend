@@ -321,6 +321,11 @@ export class CandidaturesService {
 
     const newStatus: CandidatureStatus = dto.response === 'ACCEPTED' ? 'ACCEPTED' : 'REJECTED';
 
+    // Require date and time when accepting
+    if (newStatus === 'ACCEPTED' && (!dto.proposedDate || !dto.proposedTime)) {
+      throw new BadRequestException('Date et heure requises pour accepter une candidature');
+    }
+
     // If accepting, reject all other pending candidatures for this need
     if (newStatus === 'ACCEPTED') {
       await this.prisma.candidature.updateMany({
@@ -365,7 +370,10 @@ export class CandidaturesService {
     let mission = null;
     if (newStatus === 'ACCEPTED') {
       try {
-        mission = await this.missionsService.createMissionFromCandidature(candidatureId);
+        mission = await this.missionsService.createMissionFromCandidature(candidatureId, {
+          proposedDate: dto.proposedDate!,
+          proposedTime: dto.proposedTime!,
+        });
         this.logger.log(
           `Mission ${mission.id} auto-created from candidature ${candidatureId}`,
         );
@@ -384,7 +392,7 @@ export class CandidaturesService {
       mission,
       message:
         newStatus === 'ACCEPTED'
-          ? 'Candidature acceptée. La mission a été créée automatiquement.'
+          ? 'Candidature acceptée. En attente de confirmation du technicien.'
           : 'Candidature refusée.',
     };
   }

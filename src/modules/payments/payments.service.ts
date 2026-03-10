@@ -63,6 +63,12 @@ export class PaymentsService {
       }
     }
 
+    // Force amount for need deposits
+    if (dto.purpose === PaymentPurpose.NEED_DEPOSIT) {
+      dto.amount = 2000;
+      dto.currency = 'XAF';
+    }
+
     // Create payment record
     const payment = await this.prisma.payment.create({
       data: {

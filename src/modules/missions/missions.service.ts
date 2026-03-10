@@ -96,7 +96,10 @@ export class MissionsService {
   // MISSION CREATION (from accepted candidature — direct flow)
   // ==========================================
 
-  async createMissionFromCandidature(candidatureId: string) {
+  async createMissionFromCandidature(
+    candidatureId: string,
+    options?: { proposedDate: string; proposedTime: string },
+  ) {
     const candidature = await this.prisma.candidature.findUnique({
       where: { id: candidatureId },
       include: {
@@ -131,8 +134,9 @@ export class MissionsService {
         needId: candidature.needId,
         clientId: candidature.need.clientId,
         technicianId: candidature.technicianId,
-        status: 'IN_PROGRESS',
-        startedAt: new Date(),
+        status: 'PENDING',
+        scheduledDate: options?.proposedDate ? new Date(options.proposedDate) : null,
+        scheduledTime: options?.proposedTime || null,
         address: candidature.need.address,
         latitude: candidature.need.latitude,
         longitude: candidature.need.longitude,
@@ -155,6 +159,22 @@ export class MissionsService {
     }
 
     return mission;
+  }
+
+  async confirmMissionSchedule(missionId: string, technicianId: string) {
+    const mission = await this.prisma.mission.findFirst({
+      where: { id: missionId, technicianId, status: 'PENDING' },
+    });
+
+    if (!mission) {
+      throw new NotFoundException('Mission non trouvée ou non en attente de confirmation');
+    }
+
+    return this.prisma.mission.update({
+      where: { id: missionId },
+      data: { status: 'SCHEDULED' },
+      include: this.missionIncludes(),
+    });
   }
 
   // ==========================================
@@ -536,6 +556,13 @@ export class MissionsService {
       throw new BadRequestException('La mission doit être en cours pour créer un devis additionnel');
     }
 
+    // Default urgencyLevel to the need's urgency if not provided
+    let urgencyLevel = dto.urgencyLevel;
+    if (!urgencyLevel) {
+      const need = await this.prisma.need.findUnique({ where: { id: mission.needId }, select: { urgency: true } });
+      urgencyLevel = need?.urgency ?? 'NORMAL';
+    }
+
     const materialsCost = dto.materials.reduce(
       (sum, m) => sum + m.quantity * m.unitPrice,
       0,
@@ -548,7 +575,7 @@ export class MissionsService {
         technicianId,
         missionId,
         stateOfWork: dto.stateOfWork,
-        urgencyLevel: dto.urgencyLevel,
+        urgencyLevel,
         proposedSolution: dto.proposedSolution,
         materials: JSON.stringify(dto.materials),
         laborCost: dto.laborCost,
