@@ -17,6 +17,7 @@ import {
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { AppointmentStatus, Prisma } from '@prisma/client';
 import { MissionsService } from '../missions/missions.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AppointmentsService {
@@ -26,6 +27,7 @@ export class AppointmentsService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => MissionsService))
     private readonly missionsService: MissionsService,
+    private readonly mailService: MailService,
   ) {}
 
   // ==========================================
@@ -138,7 +140,20 @@ export class AppointmentsService {
         },
       });
 
-      // TODO: Send notification to technician about new appointment
+      // Notify technician about new appointment
+      if (appointment.technician?.id) {
+        const techEmail = await this.prisma.user.findUnique({ where: { id: appointment.technician.id }, select: { email: true } });
+        if (techEmail?.email) {
+          await this.mailService.sendAppointmentCreated(techEmail.email, {
+            technicianName: appointment.technician.firstName || 'Technicien',
+            clientName: `${appointment.client?.firstName || ''} ${appointment.client?.lastName || ''}`.trim(),
+            needTitle: appointment.need?.title || 'Rendez-vous',
+            date: dto.scheduledDate,
+            time: dto.scheduledTime,
+            address: dto.address || '',
+          });
+        }
+      }
 
       return appointment;
     } catch (error) {
@@ -231,16 +246,34 @@ export class AppointmentsService {
       throw new BadRequestException('Cannot cancel appointment in current status');
     }
 
-    await this.prisma.appointment.update({
+    const updated = await this.prisma.appointment.update({
       where: { id: appointmentId },
       data: {
         status: 'CANCELLED',
         cancelledAt: new Date(),
         cancellationReason: dto.reason,
       },
+      include: {
+        client: { select: { email: true, firstName: true } },
+        technician: { select: { email: true, firstName: true } },
+      },
     });
 
-    // TODO: Send notification to other party
+    // Notify the other party
+    const isClient = appointment.clientId === userId;
+    const otherEmail = isClient ? updated.technician?.email : updated.client?.email;
+    const otherName = isClient ? (updated.technician?.firstName || 'Technicien') : (updated.client?.firstName || 'Client');
+    const cancelledBy = isClient ? 'le client' : 'le technicien';
+
+    if (otherEmail) {
+      await this.mailService.sendAppointmentCancelled(otherEmail, {
+        name: otherName,
+        date: appointment.scheduledDate.toISOString().split('T')[0],
+        time: appointment.scheduledTime,
+        reason: dto.reason,
+        cancelledBy,
+      });
+    }
 
     return { message: 'Appointment cancelled successfully' };
   }
@@ -266,10 +299,27 @@ export class AppointmentsService {
       throw new BadRequestException('Can only confirm pending appointments');
     }
 
-    return this.prisma.appointment.update({
+    const updated = await this.prisma.appointment.update({
       where: { id: appointmentId },
       data: { status: 'CONFIRMED' },
+      include: {
+        client: { select: { email: true, firstName: true } },
+        technician: { select: { firstName: true, lastName: true } },
+      },
     });
+
+    // Notify client that appointment is confirmed
+    if (updated.client?.email) {
+      await this.mailService.sendAppointmentConfirmed(updated.client.email, {
+        clientName: updated.client.firstName || 'Client',
+        technicianName: `${updated.technician?.firstName || ''} ${updated.technician?.lastName || ''}`.trim(),
+        date: appointment.scheduledDate.toISOString().split('T')[0],
+        time: appointment.scheduledTime,
+        address: appointment.address || '',
+      });
+    }
+
+    return updated;
   }
 
   async startAppointment(appointmentId: string, technicianId: string) {
@@ -295,7 +345,19 @@ export class AppointmentsService {
         status: 'IN_PROGRESS',
         technicianStartedAt: new Date(),
       },
+      include: {
+        client: { select: { email: true, firstName: true } },
+        technician: { select: { firstName: true, lastName: true } },
+      },
     });
+
+    // Notify client that technician is en route
+    if (updated.client?.email) {
+      await this.mailService.sendAppointmentStarted(updated.client.email, {
+        clientName: updated.client.firstName || 'Client',
+        technicianName: `${updated.technician?.firstName || ''} ${updated.technician?.lastName || ''}`.trim(),
+      });
+    }
 
     // Auto-create and start a mission from this appointment
     try {
@@ -397,7 +459,15 @@ export class AppointmentsService {
       });
     }
 
-    // TODO: Send notification to client to rate the technician
+    // Notify client that appointment is completed (rate the technician)
+    const client = await this.prisma.user.findUnique({ where: { id: appointment.clientId }, select: { email: true, firstName: true } });
+    const tech = await this.prisma.user.findUnique({ where: { id: appointment.technicianId }, select: { firstName: true, lastName: true } });
+    if (client?.email) {
+      await this.mailService.sendAppointmentCompleted(client.email, {
+        clientName: client.firstName || 'Client',
+        technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
+      });
+    }
 
     return updated;
   }

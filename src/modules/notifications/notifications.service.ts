@@ -85,12 +85,24 @@ const NOTIFICATION_TEMPLATES = {
 
   // Payment notifications
   PAYMENT_RECEIVED: {
-    title: 'Payment Received',
-    body: (data: any) => `Payment of ${data.amount} ${data.currency} received`,
+    title: 'Paiement confirmé',
+    body: (data: any) => {
+      const purposeLabel = data.purpose === 'license' ? 'licence'
+        : data.purpose === 'need_deposit' ? 'avance besoin'
+        : data.purpose === 'service' ? 'service'
+        : 'paiement';
+      return `Votre ${purposeLabel} de ${Number(data.amount).toLocaleString('fr-FR')} ${data.currency} a été confirmé.`;
+    },
   },
   PAYMENT_FAILED: {
-    title: 'Payment Failed',
-    body: (data: any) => `Payment of ${data.amount} ${data.currency} failed`,
+    title: 'Échec du paiement',
+    body: (data: any) => {
+      const purposeLabel = data.purpose === 'license' ? 'licence'
+        : data.purpose === 'need_deposit' ? 'avance besoin'
+        : data.purpose === 'service' ? 'service'
+        : 'paiement';
+      return `Le paiement de ${Number(data.amount).toLocaleString('fr-FR')} ${data.currency} pour votre ${purposeLabel} a échoué.`;
+    },
   },
 
   // Proximity matching notifications
@@ -529,6 +541,7 @@ export class NotificationsService {
     currency: string;
     success: boolean;
     paymentId: string;
+    purpose?: string;
   }) {
     const template = data.success
       ? NOTIFICATION_TEMPLATES.PAYMENT_RECEIVED
@@ -538,7 +551,7 @@ export class NotificationsService {
       userId: data.userId,
       type: 'PAYMENT',
       title: template.title,
-      body: template.body({ amount: data.amount, currency: data.currency }),
+      body: template.body({ amount: data.amount, currency: data.currency, purpose: data.purpose }),
       data: { paymentId: data.paymentId },
     });
   }
@@ -715,6 +728,7 @@ export class NotificationsService {
     amount: number;
     currency: string;
     paymentId: string;
+    purpose?: string;
   }) {
     return this.notifyPayment({
       ...data,

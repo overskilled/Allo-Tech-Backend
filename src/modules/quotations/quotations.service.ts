@@ -19,6 +19,7 @@ import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { QuotationStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { MissionsService } from '../missions/missions.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class QuotationsService {
@@ -26,6 +27,7 @@ export class QuotationsService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => MissionsService))
     private readonly missionsService: MissionsService,
+    private readonly mailService: MailService,
   ) {}
 
   // ==========================================
@@ -221,7 +223,20 @@ export class QuotationsService {
       },
     });
 
-    // TODO: Send notification to client with signing link
+    // Notify client with quotation details and signing link
+    if (updated.need?.client?.id) {
+      const clientUser = await this.prisma.user.findUnique({ where: { id: updated.need.client.id }, select: { email: true, firstName: true } });
+      const techUser = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
+      if (clientUser?.email) {
+        await this.mailService.sendNewQuotation(clientUser.email, {
+          clientName: clientUser.firstName || 'Client',
+          technicianName: `${techUser?.firstName || ''} ${techUser?.lastName || ''}`.trim(),
+          needTitle: updated.need.title,
+          totalCost: `${Number(updated.totalCost).toLocaleString('fr-FR')}`,
+          currency: 'XAF',
+        });
+      }
+    }
 
     return this.formatQuotation(updated);
   }
@@ -321,7 +336,24 @@ export class QuotationsService {
       },
     });
 
-    // TODO: Send notification to technician
+    // Notify technician about the response
+    const techUser = await this.prisma.user.findUnique({ where: { id: quotation.technicianId }, select: { email: true } });
+    if (techUser?.email) {
+      if (newStatus === 'ACCEPTED') {
+        await this.mailService.sendQuotationAccepted(techUser.email, {
+          technicianName: quotation.technician.firstName,
+          needTitle: quotation.need.title,
+          totalCost: `${Number(quotation.totalCost).toLocaleString('fr-FR')}`,
+          currency: 'XAF',
+        });
+      } else {
+        await this.mailService.sendQuotationRejected(techUser.email, {
+          technicianName: quotation.technician.firstName,
+          needTitle: quotation.need.title,
+          reason: dto.message,
+        });
+      }
+    }
 
     return {
       quotation: this.formatQuotation(updated),
@@ -651,6 +683,18 @@ export class QuotationsService {
       // Mission creation is best-effort from token signing
     }
 
+    // Notify technician about accepted quotation
+    const techUser = await this.prisma.user.findUnique({ where: { id: quotation.technicianId }, select: { email: true, firstName: true } });
+    const need = await this.prisma.need.findUnique({ where: { id: quotation.needId }, select: { title: true } });
+    if (techUser?.email) {
+      await this.mailService.sendQuotationAccepted(techUser.email, {
+        technicianName: techUser.firstName || 'Technicien',
+        needTitle: need?.title || 'Besoin',
+        totalCost: `${Number(quotation.totalCost).toLocaleString('fr-FR')}`,
+        currency: 'XAF',
+      });
+    }
+
     return {
       message: 'Devis signé avec succès',
       quotation: this.formatQuotation(updated),
@@ -696,6 +740,17 @@ export class QuotationsService {
 
     // Auto-create mission from signed quotation
     const mission = await this.missionsService.createMissionFromSignedQuotation(updated.id);
+
+    // Notify technician about accepted quotation
+    const techUser = await this.prisma.user.findUnique({ where: { id: quotation.technicianId }, select: { email: true, firstName: true } });
+    if (techUser?.email) {
+      await this.mailService.sendQuotationAccepted(techUser.email, {
+        technicianName: techUser.firstName || 'Technicien',
+        needTitle: quotation.need.title,
+        totalCost: `${Number(quotation.totalCost).toLocaleString('fr-FR')}`,
+        currency: 'XAF',
+      });
+    }
 
     return {
       message: 'Devis signé avec succès',

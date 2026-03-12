@@ -22,6 +22,7 @@ import { SupportModule } from './modules/support/support.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { ManagerModule } from './modules/manager/manager.module';
+import { AgentsModule } from './modules/agents/agents.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { LocationModule } from './modules/location/location.module';
@@ -56,6 +57,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     SupportModule,
     AdminModule,
     ManagerModule,
+    AgentsModule,
     ReportingModule,
   ],
   controllers: [],

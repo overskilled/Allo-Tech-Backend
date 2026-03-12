@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { RegisterDto, CompleteProfileClientDto, CompleteProfileTechnicianDto } from './dto/register.dto';
 import { LoginDto, GoogleAuthDto } from './dto/login.dto';
 import { ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto } from './dto/password.dto';
@@ -23,6 +24,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {
     this.googleClient = new OAuth2Client(
       this.configService.get('GOOGLE_CLIENT_ID'),
@@ -55,8 +57,7 @@ export class AuthService {
       },
     });
 
-    // In production, send verification email here
-    // await this.emailService.sendVerificationEmail(user.email, emailVerifyToken);
+    await this.mailService.sendEmailVerification(user.email, user.firstName || 'Utilisateur', emailVerifyToken);
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
@@ -273,6 +274,8 @@ export class AuthService {
       update: {},
     });
 
+    await this.mailService.sendWelcome(user.email, user.firstName || 'Utilisateur', 'client');
+
     return {
       message: 'Profile completed successfully',
       profile,
@@ -337,6 +340,8 @@ export class AuthService {
       },
       update: {},
     });
+
+    await this.mailService.sendWelcome(user.email, user.firstName || 'Utilisateur', 'technicien');
 
     return {
       message: 'Profile completed successfully',
@@ -410,8 +415,7 @@ export class AuthService {
       },
     });
 
-    // In production, send reset email here
-    // await this.emailService.sendPasswordResetEmail(user.email, resetToken);
+    await this.mailService.sendPasswordReset(user.email, user.firstName || 'Utilisateur', resetToken);
 
     return { message: 'If the email exists, a reset link has been sent' };
   }
@@ -658,8 +662,7 @@ export class AuthService {
       },
     });
 
-    // In production, send verification email here
-    // await this.emailService.sendVerificationEmail(user.email, emailVerifyToken);
+    await this.mailService.sendEmailVerification(user.email, user.firstName || 'Utilisateur', emailVerifyToken);
 
     return { message: 'Verification email sent' };
   }

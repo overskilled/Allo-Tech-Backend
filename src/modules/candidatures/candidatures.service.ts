@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MissionsService } from '../missions/missions.service';
+import { MailService } from '../mail/mail.service';
 import {
   SubmitCandidatureDto,
   UpdateCandidatureDto,
@@ -23,6 +24,7 @@ export class CandidaturesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly missionsService: MissionsService,
+    private readonly mailService: MailService,
   ) {}
 
   // ==========================================
@@ -98,7 +100,19 @@ export class CandidaturesService {
       },
     });
 
-    // TODO: Send notification to client about new candidature
+    // Notify client about new candidature
+    if (candidature.need?.client?.id) {
+      const clientUser = await this.prisma.user.findUnique({ where: { id: candidature.need.client.id }, select: { email: true, firstName: true } });
+      if (clientUser?.email) {
+        await this.mailService.sendNewCandidature(clientUser.email, {
+          clientName: clientUser.firstName || 'Client',
+          technicianName: `${technician.firstName} ${technician.lastName}`,
+          needTitle: candidature.need.title,
+          message: dto.message,
+          proposedPrice: dto.proposedPrice,
+        });
+      }
+    }
 
     return candidature;
   }
@@ -385,7 +399,25 @@ export class CandidaturesService {
       }
     }
 
-    // TODO: Send notification to technician about response
+    // Notify technician about response
+    const techUser = await this.prisma.user.findUnique({ where: { id: candidature.technicianId }, select: { email: true } });
+    const clientUser = await this.prisma.user.findUnique({ where: { id: clientId }, select: { firstName: true, lastName: true } });
+    if (techUser?.email) {
+      if (newStatus === 'ACCEPTED') {
+        await this.mailService.sendCandidatureAccepted(techUser.email, {
+          technicianName: candidature.technician.firstName,
+          needTitle: candidature.need.title,
+          clientName: `${clientUser?.firstName || ''} ${clientUser?.lastName || ''}`.trim(),
+          date: dto.proposedDate,
+          time: dto.proposedTime,
+        });
+      } else {
+        await this.mailService.sendCandidatureRejected(techUser.email, {
+          technicianName: candidature.technician.firstName,
+          needTitle: candidature.need.title,
+        });
+      }
+    }
 
     return {
       candidature: updated,

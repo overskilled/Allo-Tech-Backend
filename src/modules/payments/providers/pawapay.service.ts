@@ -1,64 +1,152 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import * as crypto from 'crypto';
+
+// ==========================================
+// pawaPay V2 API Interfaces
+// ==========================================
 
 export interface PawaPayDepositRequest {
   depositId: string;
   amount: string;
   currency: string;
-  correspondent: string; // Mobile operator code
   payer: {
-    type: 'MSISDN';
-    address: {
-      value: string; // Phone number
+    type: 'MMO';
+    accountDetails: {
+      provider: string;
+      phoneNumber: string;
     };
   };
-  customerTimestamp: string;
-  statementDescription: string;
-  metadata?: Array<{ fieldName: string; fieldValue: string }>;
+  customerMessage?: string;
+  preAuthorisationCode?: string;
+  clientReferenceId?: string;
+  metadata?: Array<Record<string, any>>;
+}
+
+export interface PawaPayPayoutRequest {
+  payoutId: string;
+  amount: string;
+  currency: string;
+  recipient: {
+    type: 'MMO';
+    accountDetails: {
+      provider: string;
+      phoneNumber: string;
+    };
+  };
+  customerMessage?: string;
+  metadata?: Array<Record<string, any>>;
+}
+
+export interface PawaPayRefundRequest {
+  refundId: string;
+  depositId: string;
+  amount: string;
+  currency: string;
+  metadata?: Array<Record<string, any>>;
 }
 
 export interface PawaPayDepositResponse {
   depositId: string;
   status: 'ACCEPTED' | 'REJECTED' | 'DUPLICATE_IGNORED';
-  created: string;
-  rejectionReason?: {
-    rejectionCode: string;
-    rejectionMessage: string;
-  };
-}
-
-export interface PawaPayDepositStatus {
-  depositId: string;
-  status: 'ACCEPTED' | 'PENDING' | 'COMPLETED' | 'FAILED';
-  amount: string;
-  currency: string;
-  correspondent: string;
-  payer: {
-    type: string;
-    address: { value: string };
-  };
-  customerTimestamp: string;
-  created: string;
-  receivedByRecipient?: string;
-  correspondentIds?: Record<string, string>;
+  created?: string;
   failureReason?: {
     failureCode: string;
     failureMessage: string;
   };
 }
 
+export interface PawaPayPayoutResponse {
+  payoutId: string;
+  status: 'ACCEPTED' | 'REJECTED' | 'DUPLICATE_IGNORED';
+  created?: string;
+  failureReason?: {
+    failureCode: string;
+    failureMessage: string;
+  };
+}
+
+export interface PawaPayRefundResponse {
+  refundId: string;
+  status: 'ACCEPTED' | 'REJECTED' | 'DUPLICATE_IGNORED';
+  created?: string;
+  failureReason?: {
+    failureCode: string;
+    failureMessage: string;
+  };
+}
+
+export interface PawaPayDepositStatus {
+  depositId: string;
+  status: 'ACCEPTED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'IN_RECONCILIATION' | 'FOUND';
+  amount: string;
+  currency: string;
+  payer: {
+    type: string;
+    accountDetails: {
+      provider: string;
+      phoneNumber: string;
+    };
+  };
+  created: string;
+  receivedByRecipient?: string;
+  failureReason?: {
+    failureCode: string;
+    failureMessage: string;
+  };
+}
+
+export interface PawaPayPayoutStatus {
+  payoutId: string;
+  status: 'ACCEPTED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'IN_RECONCILIATION';
+  amount: string;
+  currency: string;
+  recipient: {
+    type: string;
+    accountDetails: {
+      provider: string;
+      phoneNumber: string;
+    };
+  };
+  created: string;
+  failureReason?: {
+    failureCode: string;
+    failureMessage: string;
+  };
+}
+
+export interface PawaPayRefundStatus {
+  refundId: string;
+  status: 'ACCEPTED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'IN_RECONCILIATION';
+  amount: string;
+  currency: string;
+  depositId: string;
+  created: string;
+  failureReason?: {
+    failureCode: string;
+    failureMessage: string;
+  };
+}
+
+export interface PawaPayPredictProviderResponse {
+  provider: string;
+  country: string;
+  operationTypes: string[];
+}
+
 @Injectable()
 export class PawaPayService {
   private readonly logger = new Logger(PawaPayService.name);
-  private readonly apiUrl: string;
+  private readonly baseUrl: string;
   private readonly apiToken: string;
   private readonly isEnabled: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    // PawaPay v2 API endpoints
     const sandbox = this.configService.get<string>('PAWAPAY_SANDBOX', 'true') === 'true';
-    this.apiUrl = sandbox ? 'https://api.sandbox.pawapay.io' : 'https://api.pawapay.io';
+    this.baseUrl = sandbox
+      ? 'https://api.sandbox.pawapay.io/v2'
+      : 'https://api.pawapay.io/v2';
 
     this.apiToken = this.configService.get<string>('PAWAPAY_API_TOKEN', '');
     this.isEnabled = !!this.apiToken;
@@ -68,6 +156,14 @@ export class PawaPayService {
     } else {
       this.logger.warn('PawaPay service disabled - PAWAPAY_API_TOKEN not configured');
     }
+  }
+
+  private getHeaders(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.apiToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
   }
 
   // ==========================================
@@ -86,47 +182,42 @@ export class PawaPayService {
       throw new BadRequestException('PawaPay is not configured');
     }
 
-    // Validate phone number format
     const cleanPhone = this.formatPhoneNumber(params.phoneNumber);
-
     const depositId = randomUUID();
 
     const request: PawaPayDepositRequest = {
       depositId,
       amount: params.amount.toString(),
       currency: params.currency,
-      correspondent: params.operator,
       payer: {
-        type: 'MSISDN',
-        address: {
-          value: cleanPhone,
+        type: 'MMO',
+        accountDetails: {
+          provider: params.operator,
+          phoneNumber: cleanPhone,
         },
       },
-      customerTimestamp: new Date().toISOString(),
-      statementDescription: params.description.substring(0, 22), // Max 22 chars
+      customerMessage: params.description.substring(0, 22).padEnd(4, ' '), // 4-22 chars
     };
 
     if (params.metadata) {
       request.metadata = Object.entries(params.metadata).map(([key, value]) => ({
-        fieldName: key,
-        fieldValue: value,
+        [key]: value,
       }));
     }
 
     try {
-      const response = await fetch(`${this.apiUrl}/deposits`, {
+      const response = await fetch(`${this.baseUrl}/deposits`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: this.getHeaders(),
         body: JSON.stringify(request),
       });
 
       if (!response.ok) {
         const error = await response.text();
         this.logger.error(`PawaPay deposit failed: ${error}`);
-        throw new BadRequestException(`Payment initiation failed: ${response.statusText}`);
+        throw new BadRequestException(
+          `Payment initiation failed: ${this.parseErrorMessage(error)}`
+        );
       }
 
       const result = (await response.json()) as PawaPayDepositResponse;
@@ -135,7 +226,7 @@ export class PawaPayService {
 
       if (result.status === 'REJECTED') {
         throw new BadRequestException(
-          result.rejectionReason?.rejectionMessage || 'Payment was rejected'
+          result.failureReason?.failureMessage || 'Payment was rejected'
         );
       }
 
@@ -153,22 +244,25 @@ export class PawaPayService {
     }
 
     try {
-      const response = await fetch(`${this.apiUrl}/deposits/${depositId}`, {
+      const response = await fetch(`${this.baseUrl}/deposits/${depositId}`, {
         method: 'GET',
-        headers: {
-          Authorization: `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: this.getHeaders(),
       });
 
       if (!response.ok) {
+        const error = await response.text();
+        this.logger.error(`PawaPay deposit status failed [${depositId}]: ${error}`);
         throw new BadRequestException(`Failed to get deposit status: ${response.statusText}`);
       }
 
-      return response.json() as Promise<PawaPayDepositStatus>;
+      const result = (await response.json()) as PawaPayDepositStatus;
+      this.logger.log(
+        `PawaPay deposit status [${depositId}]: ${result.status}${result.failureReason ? ` - ${result.failureReason.failureCode}: ${result.failureReason.failureMessage}` : ''}`
+      );
+      return result;
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
-      this.logger.error(`PawaPay status check error: ${(error as any).message}`);
+      this.logger.error(`PawaPay status check error [${depositId}]: ${(error as any).message}`);
       throw new BadRequestException('Failed to check payment status');
     }
   }
@@ -179,11 +273,9 @@ export class PawaPayService {
     }
 
     try {
-      const response = await fetch(`${this.apiUrl}/deposits/${depositId}/resend-callback`, {
+      const response = await fetch(`${this.baseUrl}/deposits/${depositId}/resend-callback`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiToken}`,
-        },
+        headers: this.getHeaders(),
       });
 
       if (!response.ok) {
@@ -197,7 +289,7 @@ export class PawaPayService {
   }
 
   // ==========================================
-  // PAYOUT (Send money to user) - For future use
+  // PAYOUT (Send money to user)
   // ==========================================
 
   async initiatePayout(params: {
@@ -206,7 +298,8 @@ export class PawaPayService {
     phoneNumber: string;
     operator: string;
     description: string;
-  }): Promise<{ payoutId: string; status: string }> {
+    metadata?: Record<string, string>;
+  }): Promise<PawaPayPayoutResponse & { payoutId: string }> {
     if (!this.isEnabled) {
       throw new BadRequestException('PawaPay is not configured');
     }
@@ -214,39 +307,52 @@ export class PawaPayService {
     const cleanPhone = this.formatPhoneNumber(params.phoneNumber);
     const payoutId = randomUUID();
 
-    const request = {
+    const request: PawaPayPayoutRequest = {
       payoutId,
       amount: params.amount.toString(),
       currency: params.currency,
-      correspondent: params.operator,
       recipient: {
-        type: 'MSISDN',
-        address: {
-          value: cleanPhone,
+        type: 'MMO',
+        accountDetails: {
+          provider: params.operator,
+          phoneNumber: cleanPhone,
         },
       },
-      customerTimestamp: new Date().toISOString(),
-      statementDescription: params.description.substring(0, 22),
+      customerMessage: params.description.substring(0, 22).padEnd(4, ' '),
     };
 
+    if (params.metadata) {
+      request.metadata = Object.entries(params.metadata).map(([key, value]) => ({
+        [key]: value,
+      }));
+    }
+
     try {
-      const response = await fetch(`${this.apiUrl}/payouts`, {
+      const response = await fetch(`${this.baseUrl}/payouts`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: this.getHeaders(),
         body: JSON.stringify(request),
       });
 
       if (!response.ok) {
         const error = await response.text();
         this.logger.error(`PawaPay payout failed: ${error}`);
-        throw new BadRequestException(`Payout initiation failed`);
+        throw new BadRequestException(
+          `Payout initiation failed: ${this.parseErrorMessage(error)}`
+        );
       }
 
-      const result = await response.json();
-      return { payoutId, status: (result as any).status };
+      const result = (await response.json()) as PawaPayPayoutResponse;
+
+      this.logger.log(`PawaPay payout initiated: ${payoutId} - Status: ${result.status}`);
+
+      if (result.status === 'REJECTED') {
+        throw new BadRequestException(
+          result.failureReason?.failureMessage || 'Payout was rejected'
+        );
+      }
+
+      return { ...result, payoutId };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       this.logger.error(`PawaPay payout error: ${(error as any).message}`);
@@ -254,29 +360,185 @@ export class PawaPayService {
     }
   }
 
+  async getPayoutStatus(payoutId: string): Promise<PawaPayPayoutStatus> {
+    if (!this.isEnabled) {
+      throw new BadRequestException('PawaPay is not configured');
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/payouts/${payoutId}`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new BadRequestException(`Failed to get payout status: ${response.statusText}`);
+      }
+
+      return response.json() as Promise<PawaPayPayoutStatus>;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`PawaPay payout status error: ${(error as any).message}`);
+      throw new BadRequestException('Failed to check payout status');
+    }
+  }
+
   // ==========================================
-  // UTILITY METHODS
+  // REFUND
+  // ==========================================
+
+  async initiateRefund(params: {
+    depositId: string;
+    amount: number;
+    currency: string;
+    metadata?: Record<string, string>;
+  }): Promise<PawaPayRefundResponse & { refundId: string }> {
+    if (!this.isEnabled) {
+      throw new BadRequestException('PawaPay is not configured');
+    }
+
+    const refundId = randomUUID();
+
+    const request: PawaPayRefundRequest = {
+      refundId,
+      depositId: params.depositId,
+      amount: params.amount.toString(),
+      currency: params.currency,
+    };
+
+    if (params.metadata) {
+      request.metadata = Object.entries(params.metadata).map(([key, value]) => ({
+        [key]: value,
+      }));
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/refunds`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        this.logger.error(`PawaPay refund failed: ${error}`);
+        throw new BadRequestException(
+          `Refund initiation failed: ${this.parseErrorMessage(error)}`
+        );
+      }
+
+      const result = (await response.json()) as PawaPayRefundResponse;
+
+      this.logger.log(`PawaPay refund initiated: ${refundId} - Status: ${result.status}`);
+
+      if (result.status === 'REJECTED') {
+        throw new BadRequestException(
+          result.failureReason?.failureMessage || 'Refund was rejected'
+        );
+      }
+
+      return { ...result, refundId };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`PawaPay refund error: ${(error as any).message}`);
+      throw new BadRequestException('Failed to process refund');
+    }
+  }
+
+  async getRefundStatus(refundId: string): Promise<PawaPayRefundStatus> {
+    if (!this.isEnabled) {
+      throw new BadRequestException('PawaPay is not configured');
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/refunds/${refundId}`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new BadRequestException(`Failed to get refund status: ${response.statusText}`);
+      }
+
+      return response.json() as Promise<PawaPayRefundStatus>;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`PawaPay refund status error: ${(error as any).message}`);
+      throw new BadRequestException('Failed to check refund status');
+    }
+  }
+
+  // ==========================================
+  // TOOLKIT / UTILITY METHODS
   // ==========================================
 
   async checkAvailability(operator: string): Promise<boolean> {
     if (!this.isEnabled) return false;
 
     try {
-      const response = await fetch(`${this.apiUrl}/active-conf`, {
-        headers: {
-          Authorization: `Bearer ${this.apiToken}`,
-        },
+      const response = await fetch(`${this.baseUrl}/active-conf`, {
+        headers: this.getHeaders(),
       });
 
       if (!response.ok) return false;
 
-      const config = await response.json();
-      const correspondents = (config as any).correspondents || [];
-      return correspondents.some(
-        (c: any) => c.correspondent === operator && c.operationTypes?.includes('DEPOSIT')
-      );
+      const config = (await response.json()) as any;
+      // V2 structure: { countries: [{ providers: [{ provider, currencies: [{ operationTypes }] }] }] }
+      const countries = config.countries || [];
+      for (const country of countries) {
+        for (const provider of country.providers || []) {
+          if (provider.provider === operator) {
+            return true;
+          }
+        }
+      }
+      return false;
     } catch {
       return false;
+    }
+  }
+
+  async predictProvider(phoneNumber: string): Promise<PawaPayPredictProviderResponse | null> {
+    if (!this.isEnabled) return null;
+
+    try {
+      const response = await fetch(`${this.baseUrl}/predict-provider`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ phoneNumber }),
+      });
+
+      if (!response.ok) return null;
+
+      return response.json() as Promise<PawaPayPredictProviderResponse>;
+    } catch {
+      return null;
+    }
+  }
+
+  async getWalletBalances(country?: string): Promise<any> {
+    if (!this.isEnabled) {
+      throw new BadRequestException('PawaPay is not configured');
+    }
+
+    const url = country
+      ? `${this.baseUrl}/wallet-balances?country=${country}`
+      : `${this.baseUrl}/wallet-balances`;
+
+    try {
+      const response = await fetch(url, {
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new BadRequestException(`Failed to get wallet balances: ${response.statusText}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`PawaPay wallet balance error: ${(error as any).message}`);
+      throw new BadRequestException('Failed to get wallet balances');
     }
   }
 
@@ -302,10 +564,8 @@ export class PawaPayService {
   }
 
   private formatPhoneNumber(phone: string): string {
-    // Remove all non-numeric characters
     let clean = phone.replace(/\D/g, '');
 
-    // Add country code if missing
     if (!clean.startsWith('237')) {
       clean = '237' + clean;
     }
@@ -313,10 +573,22 @@ export class PawaPayService {
     return clean;
   }
 
+  private parseErrorMessage(errorBody: string): string {
+    try {
+      const parsed = JSON.parse(errorBody);
+      return (
+        parsed.failureReason?.failureMessage ||
+        parsed.errorMessage ||
+        parsed.message ||
+        'Unknown error'
+      );
+    } catch {
+      return errorBody || 'Unknown error';
+    }
+  }
+
   // Webhook signature verification
   verifyWebhookSignature(payload: string, signature: string): boolean {
-    // PawaPay uses HMAC-SHA256 for webhook signatures
-    const crypto = require('crypto');
     const webhookSecret = this.configService.get<string>('PAWAPAY_WEBHOOK_SECRET', '');
 
     if (!webhookSecret) {

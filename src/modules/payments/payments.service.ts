@@ -303,7 +303,7 @@ export class PaymentsService {
       return { received: true };
     }
 
-    if (status === 'COMPLETED') {
+    if (status === 'COMPLETED' || status === 'FOUND') {
       await this.completePayment(payment.id, { pawaPayStatus: status });
     } else if (status === 'FAILED') {
       await this.prisma.payment.update({
@@ -392,7 +392,13 @@ export class PaymentsService {
         amount: payment.amount.toString(),
         currency: payment.currency,
         transactionId: payment.transactionId || payment.id,
-        date: new Date().toLocaleDateString('fr-FR'),
+        date: new Date().toLocaleDateString('fr-FR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
       });
 
       // Send notification
@@ -401,6 +407,7 @@ export class PaymentsService {
         amount: Number(payment.amount),
         currency: payment.currency,
         paymentId: paymentId,
+        purpose: paymentDetails.purpose,
       });
     }
 
@@ -463,14 +470,32 @@ export class PaymentsService {
 
     // Check with provider
     if (payment.paymentMethod === PaymentProvider.PAWAPAY) {
-      const status = await this.pawaPayService.getDepositStatus(payment.transactionId);
+      this.logger.log(`Checking PawaPay deposit status for payment ${paymentId}, depositId: ${payment.transactionId}`);
+      const depositStatus = await this.pawaPayService.getDepositStatus(payment.transactionId);
+      this.logger.log(`PawaPay status for payment ${paymentId}: ${depositStatus.status}`);
 
-      if (status.status === 'COMPLETED' && payment.status === 'PENDING') {
-        await this.completePayment(payment.id, { pawaPayStatus: status.status });
+      // Sandbox returns 'FOUND' for successful lookups; production returns 'COMPLETED'
+      const isCompleted = depositStatus.status === 'COMPLETED' || depositStatus.status === 'FOUND';
+      if (isCompleted && payment.status === 'PENDING') {
+        await this.completePayment(payment.id, { pawaPayStatus: depositStatus.status });
         return { status: 'COMPLETED' };
       }
 
-      return { status: status.status };
+      if (depositStatus.status === 'FAILED') {
+        await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: 'FAILED',
+            paymentDetails: JSON.stringify({
+              ...(payment.paymentDetails ? JSON.parse(payment.paymentDetails as string) : {}),
+              failureReason: depositStatus.failureReason,
+            }),
+          },
+        });
+        return { status: 'FAILED', failureReason: depositStatus.failureReason };
+      }
+
+      return { status: depositStatus.status };
     } else if (payment.paymentMethod === PaymentProvider.PAYPAL) {
       const order = await this.paypalService.getOrderDetails(payment.transactionId);
       return { status: order.status };
@@ -558,7 +583,14 @@ export class PaymentsService {
     }
 
     // Handle refund based on provider
-    if (payment.paymentMethod === PaymentProvider.PAYPAL && payment.transactionId) {
+    if (payment.paymentMethod === PaymentProvider.PAWAPAY && payment.transactionId) {
+      await this.pawaPayService.initiateRefund({
+        depositId: payment.transactionId,
+        amount: Number(payment.amount),
+        currency: payment.currency,
+        metadata: { reason, paymentId },
+      });
+    } else if (payment.paymentMethod === PaymentProvider.PAYPAL && payment.transactionId) {
       const details = payment.paymentDetails ? JSON.parse(payment.paymentDetails as string) : {};
 
       if (details.captureId) {

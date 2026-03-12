@@ -218,6 +218,10 @@ model User {
   teamMemberships   TeamMember[]
   teamsCreated      Team[]              @relation("TeamCreator")
 
+  // Agent relations
+  fieldVisits       FieldVisit[]        @relation("AgentFieldVisits")
+  onboardings       TechnicianOnboarding[] @relation("AgentOnboardings")
+
   @@index([email])
   @@index([googleId])
   @@index([role])
@@ -1398,6 +1402,129 @@ model NeedProximityBroadcast {
 
   @@index([isActive])
   @@index([lastExpandedAt])
+}
+
+// ===========================================
+// FIELD VISITS (Agent Module)
+// ===========================================
+
+enum FieldVisitStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum FieldVisitOutcome {
+  INTERESTED
+  NOT_INTERESTED
+  FOLLOW_UP
+  ONBOARDED
+}
+
+model FieldVisit {
+  id              String           @id @default(uuid())
+  agentId         String
+  agent           User             @relation("AgentFieldVisits", fields: [agentId], references: [id], onDelete: Cascade)
+
+  // Location
+  address         String?
+  city            String
+  neighborhood    String
+  latitude        Float?
+  longitude       Float?
+
+  // Zone planning
+  zone            String?          // Named zone/sector for grouping
+  routeOrder      Int?             // Order within a planned route
+
+  status          FieldVisitStatus @default(PLANNED)
+  outcome         FieldVisitOutcome?
+  notes           String?          @db.Text
+
+  // Timestamps
+  scheduledAt     DateTime
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  // GPS tracking
+  checkinLat      Float?
+  checkinLng      Float?
+  checkinAt       DateTime?
+  checkoutLat     Float?
+  checkoutLng     Float?
+  checkoutAt      DateTime?
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Onboardings done during this campaign (one-to-many)
+  onboardings     TechnicianOnboarding[] @relation("CampaignOnboardings")
+
+  @@index([agentId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([city])
+  @@index([zone])
+}
+
+// ===========================================
+// TECHNICIAN ONBOARDING (Agent Module)
+// ===========================================
+
+enum TechOnboardingStatus {
+  PENDING
+  COMPLETED
+  REJECTED
+}
+
+model TechnicianOnboarding {
+  id              String               @id @default(uuid())
+  agentId         String
+  agent           User                 @relation("AgentOnboardings", fields: [agentId], references: [id], onDelete: Cascade)
+
+  // Technician info
+  technicianName  String
+  technicianPhone String
+  technicianEmail String?
+  profession      String
+  specialties     String?              @db.Text  // JSON array
+  yearsExperience Int?
+
+  // Location
+  city            String
+  neighborhood    String
+  address         String?
+
+  // Status tracking
+  status          TechOnboardingStatus @default(PENDING)
+  notes           String?              @db.Text
+
+  // Documents (optional JSON array of {name, url, uploadedAt})
+  documents       String?              @db.Text
+
+  // Linked user account (created upon completion)
+  technicianUserId String?            @unique
+
+  // Rejection
+  rejectionReason String?
+
+  // Timestamps
+  startedAt       DateTime             @default(now())
+  completedAt     DateTime?
+
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  // Linked campaign
+  fieldVisit      FieldVisit?          @relation("CampaignOnboardings", fields: [fieldVisitId], references: [id])
+  fieldVisitId    String?
+
+  @@index([agentId])
+  @@index([status])
+  @@index([city])
+  @@index([technicianPhone])
+  @@index([fieldVisitId])
 }
 
 // ===========================================

@@ -10,297 +10,373 @@ export interface EmailOptions {
   replyTo?: string;
 }
 
-export interface EmailTemplateData {
-  [key: string]: any;
+// ==========================================
+// SHARED TEMPLATE WRAPPER
+// ==========================================
+
+function wrap(headerColor: string, body: string): string {
+  return `
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+      <div style="background: ${headerColor}; padding: 24px; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 22px; letter-spacing: 1px;">AlloTech</h1>
+      </div>
+      <div style="padding: 32px 28px; background: #f9fafb;">
+        ${body}
+      </div>
+      <div style="background: #1f2937; padding: 20px; text-align: center;">
+        <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} AlloTech. Tous droits réservés.</p>
+      </div>
+    </div>
+  `;
 }
 
-// Email templates
+function btn(url: string, label: string, color = '#167bda'): string {
+  return `
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="${url}" style="background: ${color}; color: white; padding: 12px 32px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600; font-size: 14px;">${label}</a>
+    </div>
+  `;
+}
+
+function infoBox(rows: string): string {
+  return `<div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">${rows}</div>`;
+}
+
+function row(label: string, value: string): string {
+  return `<p style="margin: 6px 0;"><strong style="color: #374151;">${label}:</strong> <span style="color: #6b7280;">${value}</span></p>`;
+}
+
+// ==========================================
+// EMAIL TEMPLATES
+// ==========================================
+
 const TEMPLATES = {
-  // Authentication
+  // ── Authentication ──────────────────────────
   EMAIL_VERIFICATION: (data: { name: string; verificationUrl: string }) => ({
     subject: 'Vérifiez votre adresse email - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #2563eb; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Merci de vous être inscrit sur AlloTech. Veuillez cliquer sur le bouton ci-dessous pour vérifier votre adresse email.</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${data.verificationUrl}" style="background: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Vérifier mon email</a>
-          </div>
-          <p style="color: #6b7280; font-size: 14px;">Ce lien expire dans 24 heures.</p>
-          <p style="color: #6b7280; font-size: 14px;">Si vous n'avez pas créé de compte, ignorez cet email.</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Merci de vous être inscrit sur AlloTech. Veuillez cliquer sur le bouton ci-dessous pour vérifier votre adresse email.</p>
+      ${btn(data.verificationUrl, 'Vérifier mon email')}
+      <p style="color: #6b7280; font-size: 14px;">Ce lien expire dans 24 heures.</p>
+      <p style="color: #6b7280; font-size: 14px;">Si vous n'avez pas créé de compte, ignorez cet email.</p>
+    `),
   }),
 
   PASSWORD_RESET: (data: { name: string; resetUrl: string }) => ({
     subject: 'Réinitialisation de mot de passe - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #2563eb; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe.</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${data.resetUrl}" style="background: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Réinitialiser mon mot de passe</a>
-          </div>
-          <p style="color: #6b7280; font-size: 14px;">Ce lien expire dans 1 heure.</p>
-          <p style="color: #6b7280; font-size: 14px;">Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe.</p>
+      ${btn(data.resetUrl, 'Réinitialiser mon mot de passe')}
+      <p style="color: #6b7280; font-size: 14px;">Ce lien expire dans 1 heure.</p>
+      <p style="color: #6b7280; font-size: 14px;">Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>
+    `),
   }),
 
-  // Appointments
-  APPOINTMENT_CONFIRMED: (data: {
-    clientName: string;
-    technicianName: string;
-    date: string;
-    time: string;
-    address: string;
-  }) => ({
+  WELCOME: (data: { name: string; role: string }) => ({
+    subject: 'Bienvenue sur AlloTech !',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bienvenue ${data.name} !</h2>
+      <p style="color: #374151;">Nous sommes ravis de vous accueillir sur AlloTech.</p>
+      ${data.role === 'TECHNICIAN' ? `
+        <p style="color: #374151;">En tant que technicien, vous pouvez maintenant :</p>
+        <ul style="color: #374151;">
+          <li>Consulter les demandes de clients</li>
+          <li>Soumettre des candidatures</li>
+          <li>Gérer vos rendez-vous</li>
+          <li>Créer des devis</li>
+          <li>Présenter vos réalisations</li>
+        </ul>
+      ` : `
+        <p style="color: #374151;">En tant que client, vous pouvez maintenant :</p>
+        <ul style="color: #374151;">
+          <li>Publier vos besoins</li>
+          <li>Trouver des techniciens qualifiés</li>
+          <li>Prendre des rendez-vous</li>
+          <li>Recevoir des devis</li>
+          <li>Évaluer les prestations</li>
+        </ul>
+      `}
+      ${btn('#', 'Accéder à mon compte')}
+    `),
+  }),
+
+  // ── Appointments ────────────────────────────
+  APPOINTMENT_CREATED: (data: { technicianName: string; clientName: string; needTitle: string; date: string; time: string; address: string }) => ({
+    subject: 'Nouveau rendez-vous reçu - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.technicianName},</h2>
+      <p style="color: #374151;">Vous avez reçu une nouvelle demande de rendez-vous de <strong>${data.clientName}</strong>.</p>
+      ${infoBox(`
+        ${row('Demande', data.needTitle)}
+        ${row('Date', data.date)}
+        ${row('Heure', data.time)}
+        ${row('Adresse', data.address)}
+      `)}
+      <p style="color: #374151;">Connectez-vous à l'application pour confirmer ou gérer ce rendez-vous.</p>
+      ${btn('#', 'Voir le rendez-vous')}
+    `),
+  }),
+
+  APPOINTMENT_CONFIRMED: (data: { clientName: string; technicianName: string; date: string; time: string; address: string }) => ({
     subject: 'Rendez-vous confirmé - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #2563eb; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.clientName},</h2>
-          <p>Votre rendez-vous a été confirmé avec succès!</p>
-          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Technicien:</strong> ${data.technicianName}</p>
-            <p><strong>Date:</strong> ${data.date}</p>
-            <p><strong>Heure:</strong> ${data.time}</p>
-            <p><strong>Adresse:</strong> ${data.address}</p>
-          </div>
-          <p>Le technicien vous contactera pour confirmer les détails.</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#5bc288', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;">Votre rendez-vous a été confirmé avec succès !</p>
+      ${infoBox(`
+        ${row('Technicien', data.technicianName)}
+        ${row('Date', data.date)}
+        ${row('Heure', data.time)}
+        ${row('Adresse', data.address)}
+      `)}
+      <p style="color: #374151;">Le technicien vous contactera pour confirmer les détails.</p>
+    `),
   }),
 
-  APPOINTMENT_CANCELLED: (data: { name: string; date: string; time: string; reason?: string }) => ({
+  APPOINTMENT_CANCELLED: (data: { name: string; date: string; time: string; reason?: string; cancelledBy: string }) => ({
     subject: 'Rendez-vous annulé - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #dc2626; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Votre rendez-vous prévu le ${data.date} à ${data.time} a été annulé.</p>
-          ${data.reason ? `<p><strong>Raison:</strong> ${data.reason}</p>` : ''}
-          <p>Vous pouvez créer un nouveau rendez-vous depuis l'application.</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#dc2626', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Le rendez-vous prévu le <strong>${data.date}</strong> à <strong>${data.time}</strong> a été annulé par le <strong>${data.cancelledBy}</strong>.</p>
+      ${data.reason ? `<p style="color: #374151;"><strong>Raison :</strong> ${data.reason}</p>` : ''}
+      <p style="color: #374151;">Vous pouvez planifier un nouveau rendez-vous depuis l'application.</p>
+    `),
   }),
 
-  // Quotations
-  NEW_QUOTATION: (data: {
-    clientName: string;
-    technicianName: string;
-    needTitle: string;
-    totalCost: string;
-    currency: string;
-  }) => ({
+  APPOINTMENT_STARTED: (data: { clientName: string; technicianName: string }) => ({
+    subject: 'Votre technicien est en route - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;"><strong>${data.technicianName}</strong> est en route vers votre adresse. Préparez-vous pour son arrivée !</p>
+    `),
+  }),
+
+  APPOINTMENT_COMPLETED: (data: { clientName: string; technicianName: string }) => ({
+    subject: 'Rendez-vous terminé - Donnez votre avis ! - AlloTech',
+    html: wrap('#5bc288', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;">Votre intervention avec <strong>${data.technicianName}</strong> est maintenant terminée.</p>
+      <p style="color: #374151;">Votre avis est important ! Prenez un moment pour évaluer le technicien.</p>
+      ${btn('#', 'Donner mon avis', '#5bc288')}
+    `),
+  }),
+
+  // ── Candidatures ────────────────────────────
+  NEW_CANDIDATURE: (data: { clientName: string; technicianName: string; needTitle: string; message?: string; proposedPrice?: number }) => ({
+    subject: 'Nouvelle candidature reçue - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;">Un technicien a postulé pour votre demande !</p>
+      ${infoBox(`
+        ${row('Demande', data.needTitle)}
+        ${row('Technicien', data.technicianName)}
+        ${data.proposedPrice ? row('Prix proposé', `${data.proposedPrice.toLocaleString('fr-FR')} XAF`) : ''}
+        ${data.message ? row('Message', data.message) : ''}
+      `)}
+      <p style="color: #374151;">Consultez le profil du technicien et répondez à sa candidature.</p>
+      ${btn('#', 'Voir la candidature')}
+    `),
+  }),
+
+  CANDIDATURE_ACCEPTED: (data: { technicianName: string; needTitle: string; clientName: string; date?: string; time?: string }) => ({
+    subject: 'Votre candidature a été acceptée ! - AlloTech',
+    html: wrap('#5bc288', `
+      <h2 style="color: #111827;">Félicitations ${data.technicianName} !</h2>
+      <p style="color: #374151;">Votre candidature pour <strong>"${data.needTitle}"</strong> a été acceptée par <strong>${data.clientName}</strong> !</p>
+      ${data.date ? infoBox(`
+        ${row('Date proposée', data.date)}
+        ${data.time ? row('Heure', data.time) : ''}
+      `) : ''}
+      <p style="color: #374151;">Une mission a été créée. Connectez-vous pour la consulter et la planifier.</p>
+      ${btn('#', 'Voir ma mission', '#5bc288')}
+    `),
+  }),
+
+  CANDIDATURE_REJECTED: (data: { technicianName: string; needTitle: string }) => ({
+    subject: 'Candidature non retenue - AlloTech',
+    html: wrap('#6b7280', `
+      <h2 style="color: #111827;">Bonjour ${data.technicianName},</h2>
+      <p style="color: #374151;">Votre candidature pour <strong>"${data.needTitle}"</strong> n'a malheureusement pas été retenue.</p>
+      <p style="color: #374151;">Ne vous découragez pas ! De nouvelles demandes sont publiées régulièrement.</p>
+      ${btn('#', 'Voir les demandes disponibles')}
+    `),
+  }),
+
+  // ── Quotations ──────────────────────────────
+  NEW_QUOTATION: (data: { clientName: string; technicianName: string; needTitle: string; totalCost: string; currency: string; signingUrl?: string }) => ({
     subject: 'Nouveau devis reçu - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #2563eb; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.clientName},</h2>
-          <p>Vous avez reçu un nouveau devis!</p>
-          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Demande:</strong> ${data.needTitle}</p>
-            <p><strong>Technicien:</strong> ${data.technicianName}</p>
-            <p><strong>Montant total:</strong> ${data.totalCost} ${data.currency}</p>
-          </div>
-          <p>Connectez-vous à l'application pour consulter les détails et répondre.</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;">Vous avez reçu un nouveau devis !</p>
+      ${infoBox(`
+        ${row('Demande', data.needTitle)}
+        ${row('Technicien', data.technicianName)}
+        ${row('Montant total', `${data.totalCost} ${data.currency}`)}
+      `)}
+      <p style="color: #374151;">Consultez le devis et signez-le directement depuis l'application ou via le lien ci-dessous.</p>
+      ${data.signingUrl ? btn(data.signingUrl, 'Consulter et signer le devis') : btn('#', 'Voir le devis')}
+    `),
   }),
 
-  // Payments
-  PAYMENT_RECEIVED: (data: {
-    name: string;
-    amount: string;
-    currency: string;
-    transactionId: string;
-    date: string;
-  }) => ({
+  QUOTATION_ACCEPTED: (data: { technicianName: string; needTitle: string; totalCost: string; currency: string }) => ({
+    subject: 'Votre devis a été accepté ! - AlloTech',
+    html: wrap('#5bc288', `
+      <h2 style="color: #111827;">Bonne nouvelle ${data.technicianName} !</h2>
+      <p style="color: #374151;">Votre devis pour <strong>"${data.needTitle}"</strong> a été accepté et signé par le client.</p>
+      ${infoBox(`${row('Montant', `${data.totalCost} ${data.currency}`)}`)}
+      <p style="color: #374151;">Une mission a été automatiquement créée. Planifiez-la dès maintenant.</p>
+      ${btn('#', 'Voir la mission', '#5bc288')}
+    `),
+  }),
+
+  QUOTATION_REJECTED: (data: { technicianName: string; needTitle: string; reason?: string }) => ({
+    subject: 'Devis refusé - AlloTech',
+    html: wrap('#6b7280', `
+      <h2 style="color: #111827;">Bonjour ${data.technicianName},</h2>
+      <p style="color: #374151;">Votre devis pour <strong>"${data.needTitle}"</strong> a été refusé par le client.</p>
+      ${data.reason ? `<p style="color: #374151;"><strong>Message du client :</strong> ${data.reason}</p>` : ''}
+    `),
+  }),
+
+  // ── Missions ────────────────────────────────
+  MISSION_CREATED: (data: { name: string; needTitle: string; otherPartyName: string; role: 'client' | 'technician' }) => ({
+    subject: 'Nouvelle mission créée - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Une nouvelle mission a été créée pour <strong>"${data.needTitle}"</strong>.</p>
+      ${infoBox(`${row(data.role === 'client' ? 'Technicien' : 'Client', data.otherPartyName)}`)}
+      <p style="color: #374151;">Consultez les détails de la mission dans l'application.</p>
+      ${btn('#', 'Voir la mission')}
+    `),
+  }),
+
+  MISSION_SCHEDULED: (data: { clientName: string; technicianName: string; needTitle: string; date: string; time?: string }) => ({
+    subject: 'Mission planifiée - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;">La mission <strong>"${data.needTitle}"</strong> a été planifiée par <strong>${data.technicianName}</strong>.</p>
+      ${infoBox(`
+        ${row('Date', data.date)}
+        ${data.time ? row('Heure', data.time) : ''}
+      `)}
+    `),
+  }),
+
+  MISSION_STARTED: (data: { clientName: string; technicianName: string; needTitle: string }) => ({
+    subject: 'Mission démarrée - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;">La mission <strong>"${data.needTitle}"</strong> a été démarrée par <strong>${data.technicianName}</strong>.</p>
+      <p style="color: #374151;">Vous serez informé à chaque étape de la progression.</p>
+    `),
+  }),
+
+  MISSION_VALIDATION_REQUESTED: (data: { clientName: string; technicianName: string; needTitle: string }) => ({
+    subject: 'Validation requise — Mission terminée - AlloTech',
+    html: wrap('#fab829', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;"><strong>${data.technicianName}</strong> a terminé la mission <strong>"${data.needTitle}"</strong> et demande votre validation.</p>
+      <p style="color: #374151;">Vérifiez que les travaux ont été réalisés correctement et validez la mission.</p>
+      ${btn('#', 'Valider la mission', '#fab829')}
+    `),
+  }),
+
+  MISSION_COMPLETED: (data: { name: string; needTitle: string }) => ({
+    subject: 'Mission terminée - AlloTech',
+    html: wrap('#5bc288', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">La mission <strong>"${data.needTitle}"</strong> a été complétée avec succès !</p>
+      <p style="color: #374151;">Les deux parties ont validé. Merci pour votre confiance.</p>
+    `),
+  }),
+
+  MISSION_CANCELLED: (data: { name: string; needTitle: string; reason?: string; cancelledBy: string }) => ({
+    subject: 'Mission annulée - AlloTech',
+    html: wrap('#dc2626', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">La mission <strong>"${data.needTitle}"</strong> a été annulée par le <strong>${data.cancelledBy}</strong>.</p>
+      ${data.reason ? `<p style="color: #374151;"><strong>Raison :</strong> ${data.reason}</p>` : ''}
+    `),
+  }),
+
+  ADDITIONAL_QUOTATION: (data: { clientName: string; technicianName: string; needTitle: string; totalCost: string }) => ({
+    subject: 'Devis additionnel reçu - AlloTech',
+    html: wrap('#fab829', `
+      <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
+      <p style="color: #374151;"><strong>${data.technicianName}</strong> a soumis un devis additionnel pour la mission <strong>"${data.needTitle}"</strong>.</p>
+      ${infoBox(`${row('Montant', `${data.totalCost} XAF`)}`)}
+      <p style="color: #374151;">Consultez et répondez au devis dans l'application.</p>
+      ${btn('#', 'Voir le devis', '#fab829')}
+    `),
+  }),
+
+  // ── Payments ────────────────────────────────
+  PAYMENT_RECEIVED: (data: { name: string; amount: string; currency: string; transactionId: string; date: string }) => ({
     subject: 'Paiement reçu - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #16a34a; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Nous avons bien reçu votre paiement!</p>
-          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Montant:</strong> ${data.amount} ${data.currency}</p>
-            <p><strong>Transaction ID:</strong> ${data.transactionId}</p>
-            <p><strong>Date:</strong> ${data.date}</p>
-          </div>
-          <p>Merci pour votre confiance!</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#5bc288', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Nous avons bien reçu votre paiement !</p>
+      ${infoBox(`
+        ${row('Montant', `${data.amount} ${data.currency}`)}
+        ${row('Transaction', data.transactionId)}
+        ${row('Date', data.date)}
+      `)}
+      <p style="color: #374151;">Merci pour votre confiance !</p>
+    `),
   }),
 
-  // License
-  LICENSE_ACTIVATED: (data: {
-    name: string;
-    plan: string;
-    startDate: string;
-    endDate: string;
-  }) => ({
+  // ── Licenses ────────────────────────────────
+  LICENSE_ACTIVATED: (data: { name: string; plan: string; startDate: string; endDate: string }) => ({
     subject: 'Licence activée - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #2563eb; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Votre licence a été activée avec succès!</p>
-          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Plan:</strong> ${data.plan}</p>
-            <p><strong>Date de début:</strong> ${data.startDate}</p>
-            <p><strong>Date de fin:</strong> ${data.endDate}</p>
-          </div>
-          <p>Profitez de toutes les fonctionnalités de votre compte!</p>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Votre licence a été activée avec succès !</p>
+      ${infoBox(`
+        ${row('Plan', data.plan)}
+        ${row('Début', data.startDate)}
+        ${row('Fin', data.endDate)}
+      `)}
+    `),
   }),
 
-  LICENSE_EXPIRING: (data: {
-    name: string;
-    plan: string;
-    expiryDate: string;
-    daysRemaining: number;
-  }) => ({
+  LICENSE_EXPIRING: (data: { name: string; plan: string; expiryDate: string; daysRemaining: number }) => ({
     subject: 'Votre licence expire bientôt - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #f59e0b; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Votre licence ${data.plan} expire dans ${data.daysRemaining} jours (${data.expiryDate}).</p>
-          <p>Renouvelez maintenant pour continuer à profiter de toutes les fonctionnalités.</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="#" style="background: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Renouveler ma licence</a>
-          </div>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#fab829', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Votre licence <strong>${data.plan}</strong> expire dans <strong>${data.daysRemaining} jours</strong> (${data.expiryDate}).</p>
+      <p style="color: #374151;">Renouvelez maintenant pour continuer à profiter de toutes les fonctionnalités.</p>
+      ${btn('#', 'Renouveler ma licence', '#fab829')}
+    `),
   }),
 
   LICENSE_EXPIRED: (data: { name: string; plan: string }) => ({
     subject: 'Votre licence a expiré - AlloTech',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #dc2626; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bonjour ${data.name},</h2>
-          <p>Votre licence ${data.plan} a expiré.</p>
-          <p>Renouvelez maintenant pour retrouver l'accès à toutes les fonctionnalités.</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="#" style="background: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Renouveler ma licence</a>
-          </div>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+    html: wrap('#dc2626', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Votre licence <strong>${data.plan}</strong> a expiré.</p>
+      <p style="color: #374151;">Renouvelez maintenant pour retrouver l'accès à toutes les fonctionnalités.</p>
+      ${btn('#', 'Renouveler ma licence')}
+    `),
   }),
 
-  // Welcome
-  WELCOME: (data: { name: string; role: string }) => ({
-    subject: 'Bienvenue sur AlloTech!',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #2563eb; padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">AlloTech</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb;">
-          <h2>Bienvenue ${data.name}!</h2>
-          <p>Nous sommes ravis de vous accueillir sur AlloTech.</p>
-          ${
-            data.role === 'TECHNICIAN'
-              ? `
-            <p>En tant que technicien, vous pouvez maintenant:</p>
-            <ul>
-              <li>Consulter les demandes de clients</li>
-              <li>Soumettre des candidatures</li>
-              <li>Gérer vos rendez-vous</li>
-              <li>Créer des devis</li>
-              <li>Présenter vos réalisations</li>
-            </ul>
-          `
-              : `
-            <p>En tant que client, vous pouvez maintenant:</p>
-            <ul>
-              <li>Publier vos besoins</li>
-              <li>Trouver des techniciens qualifiés</li>
-              <li>Prendre des rendez-vous</li>
-              <li>Recevoir des devis</li>
-              <li>Évaluer les prestations</li>
-            </ul>
-          `
-          }
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="#" style="background: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Accéder à mon compte</a>
-          </div>
-        </div>
-        <div style="background: #1f2937; padding: 20px; text-align: center;">
-          <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2024 AlloTech. Tous droits réservés.</p>
-        </div>
-      </div>
-    `,
+  // ── Ratings ─────────────────────────────────
+  NEW_RATING: (data: { technicianName: string; clientName: string; score: number; comment?: string }) => ({
+    subject: 'Nouvel avis reçu - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.technicianName},</h2>
+      <p style="color: #374151;"><strong>${data.clientName}</strong> vous a laissé un avis !</p>
+      ${infoBox(`
+        ${row('Note', '⭐'.repeat(data.score) + ` (${data.score}/5)`)}
+        ${data.comment ? row('Commentaire', data.comment) : ''}
+      `)}
+    `),
   }),
 };
+
+// ==========================================
+// MAIL SERVICE
+// ==========================================
 
 @Injectable()
 export class MailService {
@@ -308,11 +384,13 @@ export class MailService {
   private resend: Resend;
   private fromEmail: string;
   private isEnabled: boolean;
+  private frontendUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     this.fromEmail = this.configService.get<string>('MAIL_FROM', 'AlloTech <noreply@allotech.com>');
-    this.isEnabled = !!apiKey;
+    this.frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:5173');
+    this.isEnabled = !!apiKey && apiKey !== 're_xxxxx';
 
     if (this.isEnabled) {
       this.resend = new Resend(apiKey);
@@ -351,15 +429,17 @@ export class MailService {
   }
 
   // ==========================================
-  // TEMPLATE METHODS
+  // AUTH TEMPLATES
   // ==========================================
 
-  async sendEmailVerification(to: string, name: string, verificationUrl: string) {
+  async sendEmailVerification(to: string, name: string, token: string) {
+    const verificationUrl = `${this.frontendUrl}/verifier-email/${token}`;
     const template = TEMPLATES.EMAIL_VERIFICATION({ name, verificationUrl });
     return this.send({ to, ...template });
   }
 
-  async sendPasswordReset(to: string, name: string, resetUrl: string) {
+  async sendPasswordReset(to: string, name: string, token: string) {
+    const resetUrl = `${this.frontendUrl}/reinitialiser-mot-de-passe?token=${token}`;
     const template = TEMPLATES.PASSWORD_RESET({ name, resetUrl });
     return this.send({ to, ...template });
   }
@@ -369,74 +449,146 @@ export class MailService {
     return this.send({ to, ...template });
   }
 
-  async sendAppointmentConfirmed(
-    to: string,
-    data: {
-      clientName: string;
-      technicianName: string;
-      date: string;
-      time: string;
-      address: string;
-    }
-  ) {
+  // ==========================================
+  // APPOINTMENT TEMPLATES
+  // ==========================================
+
+  async sendAppointmentCreated(to: string, data: { technicianName: string; clientName: string; needTitle: string; date: string; time: string; address: string }) {
+    const template = TEMPLATES.APPOINTMENT_CREATED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendAppointmentConfirmed(to: string, data: { clientName: string; technicianName: string; date: string; time: string; address: string }) {
     const template = TEMPLATES.APPOINTMENT_CONFIRMED(data);
     return this.send({ to, ...template });
   }
 
-  async sendAppointmentCancelled(
-    to: string,
-    data: { name: string; date: string; time: string; reason?: string }
-  ) {
+  async sendAppointmentCancelled(to: string, data: { name: string; date: string; time: string; reason?: string; cancelledBy: string }) {
     const template = TEMPLATES.APPOINTMENT_CANCELLED(data);
     return this.send({ to, ...template });
   }
 
-  async sendNewQuotation(
-    to: string,
-    data: {
-      clientName: string;
-      technicianName: string;
-      needTitle: string;
-      totalCost: string;
-      currency: string;
-    }
-  ) {
+  async sendAppointmentStarted(to: string, data: { clientName: string; technicianName: string }) {
+    const template = TEMPLATES.APPOINTMENT_STARTED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendAppointmentCompleted(to: string, data: { clientName: string; technicianName: string }) {
+    const template = TEMPLATES.APPOINTMENT_COMPLETED(data);
+    return this.send({ to, ...template });
+  }
+
+  // ==========================================
+  // CANDIDATURE TEMPLATES
+  // ==========================================
+
+  async sendNewCandidature(to: string, data: { clientName: string; technicianName: string; needTitle: string; message?: string; proposedPrice?: number }) {
+    const template = TEMPLATES.NEW_CANDIDATURE(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendCandidatureAccepted(to: string, data: { technicianName: string; needTitle: string; clientName: string; date?: string; time?: string }) {
+    const template = TEMPLATES.CANDIDATURE_ACCEPTED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendCandidatureRejected(to: string, data: { technicianName: string; needTitle: string }) {
+    const template = TEMPLATES.CANDIDATURE_REJECTED(data);
+    return this.send({ to, ...template });
+  }
+
+  // ==========================================
+  // QUOTATION TEMPLATES
+  // ==========================================
+
+  async sendNewQuotation(to: string, data: { clientName: string; technicianName: string; needTitle: string; totalCost: string; currency: string; signingUrl?: string }) {
     const template = TEMPLATES.NEW_QUOTATION(data);
     return this.send({ to, ...template });
   }
 
-  async sendPaymentReceived(
-    to: string,
-    data: {
-      name: string;
-      amount: string;
-      currency: string;
-      transactionId: string;
-      date: string;
-    }
-  ) {
+  async sendQuotationAccepted(to: string, data: { technicianName: string; needTitle: string; totalCost: string; currency: string }) {
+    const template = TEMPLATES.QUOTATION_ACCEPTED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendQuotationRejected(to: string, data: { technicianName: string; needTitle: string; reason?: string }) {
+    const template = TEMPLATES.QUOTATION_REJECTED(data);
+    return this.send({ to, ...template });
+  }
+
+  // ==========================================
+  // MISSION TEMPLATES
+  // ==========================================
+
+  async sendMissionCreated(to: string, data: { name: string; needTitle: string; otherPartyName: string; role: 'client' | 'technician' }) {
+    const template = TEMPLATES.MISSION_CREATED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendMissionScheduled(to: string, data: { clientName: string; technicianName: string; needTitle: string; date: string; time?: string }) {
+    const template = TEMPLATES.MISSION_SCHEDULED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendMissionStarted(to: string, data: { clientName: string; technicianName: string; needTitle: string }) {
+    const template = TEMPLATES.MISSION_STARTED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendMissionValidationRequested(to: string, data: { clientName: string; technicianName: string; needTitle: string }) {
+    const template = TEMPLATES.MISSION_VALIDATION_REQUESTED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendMissionCompleted(to: string, data: { name: string; needTitle: string }) {
+    const template = TEMPLATES.MISSION_COMPLETED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendMissionCancelled(to: string, data: { name: string; needTitle: string; reason?: string; cancelledBy: string }) {
+    const template = TEMPLATES.MISSION_CANCELLED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendAdditionalQuotation(to: string, data: { clientName: string; technicianName: string; needTitle: string; totalCost: string }) {
+    const template = TEMPLATES.ADDITIONAL_QUOTATION(data);
+    return this.send({ to, ...template });
+  }
+
+  // ==========================================
+  // PAYMENT TEMPLATES
+  // ==========================================
+
+  async sendPaymentReceived(to: string, data: { name: string; amount: string; currency: string; transactionId: string; date: string }) {
     const template = TEMPLATES.PAYMENT_RECEIVED(data);
     return this.send({ to, ...template });
   }
 
-  async sendLicenseActivated(
-    to: string,
-    data: { name: string; plan: string; startDate: string; endDate: string }
-  ) {
+  // ==========================================
+  // LICENSE TEMPLATES
+  // ==========================================
+
+  async sendLicenseActivated(to: string, data: { name: string; plan: string; startDate: string; endDate: string }) {
     const template = TEMPLATES.LICENSE_ACTIVATED(data);
     return this.send({ to, ...template });
   }
 
-  async sendLicenseExpiring(
-    to: string,
-    data: { name: string; plan: string; expiryDate: string; daysRemaining: number }
-  ) {
+  async sendLicenseExpiring(to: string, data: { name: string; plan: string; expiryDate: string; daysRemaining: number }) {
     const template = TEMPLATES.LICENSE_EXPIRING(data);
     return this.send({ to, ...template });
   }
 
   async sendLicenseExpired(to: string, data: { name: string; plan: string }) {
     const template = TEMPLATES.LICENSE_EXPIRED(data);
+    return this.send({ to, ...template });
+  }
+
+  // ==========================================
+  // RATING TEMPLATES
+  // ==========================================
+
+  async sendNewRating(to: string, data: { technicianName: string; clientName: string; score: number; comment?: string }) {
+    const template = TEMPLATES.NEW_RATING(data);
     return this.send({ to, ...template });
   }
 }

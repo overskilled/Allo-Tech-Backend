@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { MailService } from '../mail/mail.service';
 import {
   ScheduleMissionDto,
   ValidateMissionDto,
@@ -26,6 +27,7 @@ export class MissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagingService: MessagingService,
+    private readonly mailService: MailService,
   ) {}
 
   // ==========================================
@@ -87,6 +89,26 @@ export class MissionsService {
       );
     } catch (err) {
       this.logger.warn(`Failed to auto-create conversation for mission ${mission.id}: ${err}`);
+    }
+
+    // Notify both parties about mission creation
+    const client = await this.prisma.user.findUnique({ where: { id: quotation.need.clientId }, select: { email: true, firstName: true } });
+    if (client?.email) {
+      await this.mailService.sendMissionCreated(client.email, {
+        name: client.firstName || 'Client',
+        needTitle: quotation.need.title,
+        otherPartyName: `${quotation.technician.firstName} ${quotation.technician.lastName}`,
+        role: 'client',
+      });
+    }
+    const techUser = await this.prisma.user.findUnique({ where: { id: quotation.technicianId }, select: { email: true } });
+    if (techUser?.email) {
+      await this.mailService.sendMissionCreated(techUser.email, {
+        name: quotation.technician.firstName,
+        needTitle: quotation.need.title,
+        otherPartyName: client?.firstName || 'Client',
+        role: 'technician',
+      });
     }
 
     return mission;
@@ -156,6 +178,26 @@ export class MissionsService {
         `Failed to auto-create conversation for mission ${mission.id}: ${err}`,
         (err as Error).stack,
       );
+    }
+
+    // Notify both parties about mission creation
+    const client = await this.prisma.user.findUnique({ where: { id: candidature.need.clientId }, select: { email: true, firstName: true } });
+    if (client?.email) {
+      await this.mailService.sendMissionCreated(client.email, {
+        name: client.firstName || 'Client',
+        needTitle: candidature.need.title,
+        otherPartyName: `${candidature.technician.firstName} ${candidature.technician.lastName}`,
+        role: 'client',
+      });
+    }
+    const techUser = await this.prisma.user.findUnique({ where: { id: candidature.technicianId }, select: { email: true } });
+    if (techUser?.email) {
+      await this.mailService.sendMissionCreated(techUser.email, {
+        name: candidature.technician.firstName,
+        needTitle: candidature.need.title,
+        otherPartyName: client?.firstName || 'Client',
+        role: 'technician',
+      });
     }
 
     return mission;
@@ -329,7 +371,7 @@ export class MissionsService {
       throw new BadRequestException('La mission doit être en attente pour être planifiée');
     }
 
-    return this.prisma.mission.update({
+    const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: {
         scheduledDate: new Date(dto.scheduledDate),
@@ -338,6 +380,21 @@ export class MissionsService {
       },
       include: this.missionIncludes(),
     });
+
+    // Notify client about scheduling
+    const client = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
+    const tech = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
+    if (client?.email) {
+      await this.mailService.sendMissionScheduled(client.email, {
+        clientName: client.firstName || 'Client',
+        technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
+        needTitle: updated.need?.title || 'Mission',
+        date: dto.scheduledDate,
+        time: dto.scheduledTime,
+      });
+    }
+
+    return updated;
   }
 
   async startMission(missionId: string, technicianId: string) {
@@ -347,7 +404,7 @@ export class MissionsService {
       throw new BadRequestException('La mission doit être planifiée ou en attente pour démarrer');
     }
 
-    return this.prisma.mission.update({
+    const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: {
         status: 'IN_PROGRESS',
@@ -355,6 +412,19 @@ export class MissionsService {
       },
       include: this.missionIncludes(),
     });
+
+    // Notify client that mission has started
+    const client = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
+    const tech = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
+    if (client?.email) {
+      await this.mailService.sendMissionStarted(client.email, {
+        clientName: client.firstName || 'Client',
+        technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
+        needTitle: updated.need?.title || 'Mission',
+      });
+    }
+
+    return updated;
   }
 
   async requestCompletion(missionId: string, technicianId: string, dto: RequestCompletionDto) {
@@ -364,7 +434,7 @@ export class MissionsService {
       throw new BadRequestException('La mission doit être en cours pour demander la complétion');
     }
 
-    return this.prisma.mission.update({
+    const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: {
         status: 'PENDING_VALIDATION',
@@ -373,6 +443,19 @@ export class MissionsService {
       },
       include: this.missionIncludes(),
     });
+
+    // Notify client to validate the mission
+    const client = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
+    const tech = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
+    if (client?.email) {
+      await this.mailService.sendMissionValidationRequested(client.email, {
+        clientName: client.firstName || 'Client',
+        technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
+        needTitle: updated.need?.title || 'Mission',
+      });
+    }
+
+    return updated;
   }
 
   async validateMission(missionId: string, userId: string, dto: ValidateMissionDto) {
@@ -433,11 +516,26 @@ export class MissionsService {
       updateData.status = 'PENDING_VALIDATION';
     }
 
-    return this.prisma.mission.update({
+    const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: updateData,
       include: this.missionIncludes(),
     });
+
+    // If mission is now completed, notify both parties
+    if (updated.status === 'COMPLETED') {
+      const clientUser = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
+      const techUser = await this.prisma.user.findUnique({ where: { id: mission.technicianId }, select: { email: true, firstName: true } });
+      const needTitle = updated.need?.title || 'Mission';
+      if (clientUser?.email) {
+        await this.mailService.sendMissionCompleted(clientUser.email, { name: clientUser.firstName || 'Client', needTitle });
+      }
+      if (techUser?.email) {
+        await this.mailService.sendMissionCompleted(techUser.email, { name: techUser.firstName || 'Technicien', needTitle });
+      }
+    }
+
+    return updated;
   }
 
   async cancelMission(missionId: string, userId: string, dto: CancelMissionDto) {
@@ -457,7 +555,7 @@ export class MissionsService {
       throw new BadRequestException('Cette mission ne peut plus être annulée');
     }
 
-    return this.prisma.mission.update({
+    const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: {
         status: 'CANCELLED',
@@ -466,6 +564,21 @@ export class MissionsService {
       },
       include: this.missionIncludes(),
     });
+
+    // Notify the other party about cancellation
+    const isClient = mission.clientId === userId;
+    const otherUserId = isClient ? mission.technicianId : mission.clientId;
+    const otherUser = await this.prisma.user.findUnique({ where: { id: otherUserId }, select: { email: true, firstName: true } });
+    if (otherUser?.email) {
+      await this.mailService.sendMissionCancelled(otherUser.email, {
+        name: otherUser.firstName || 'Utilisateur',
+        needTitle: updated.need?.title || 'Mission',
+        reason: dto.reason,
+        cancelledBy: isClient ? 'le client' : 'le technicien',
+      });
+    }
+
+    return updated;
   }
 
   // ==========================================
@@ -569,7 +682,7 @@ export class MissionsService {
     );
     const totalCost = materialsCost + dto.laborCost;
 
-    return this.prisma.quotation.create({
+    const quotation = await this.prisma.quotation.create({
       data: {
         needId: mission.needId,
         technicianId,
@@ -589,6 +702,21 @@ export class MissionsService {
         images: true,
       },
     });
+
+    // Notify client about additional quotation
+    const client = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
+    const tech = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
+    const need = await this.prisma.need.findUnique({ where: { id: mission.needId }, select: { title: true } });
+    if (client?.email) {
+      await this.mailService.sendAdditionalQuotation(client.email, {
+        clientName: client.firstName || 'Client',
+        technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
+        needTitle: need?.title || 'Mission',
+        totalCost: `${totalCost.toLocaleString('fr-FR')} XAF`,
+      });
+    }
+
+    return quotation;
   }
 
   // ==========================================
