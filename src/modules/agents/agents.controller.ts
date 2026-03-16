@@ -32,7 +32,7 @@ import {
 @ApiTags('Agents')
 @Controller({ path: 'agents', version: '1' })
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('MANAGER', 'ADMIN')
+@Roles('AGENT', 'ADMIN')
 @ApiBearerAuth()
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}

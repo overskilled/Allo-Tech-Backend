@@ -65,25 +65,25 @@ async function main() {
   console.log(`  ✓ Admin created: ${admin.email}`);
 
   // ===========================================
-  // MANAGER USER
+  // AGENT USER
   // ===========================================
-  console.log('\n👤 Creating manager user...');
+  console.log('\n👤 Creating agent user...');
 
-  const managerPassword = await bcrypt.hash('Manager@123', 10);
-  const manager = await prisma.user.upsert({
-    where: { email: 'manager@allotech.cm' },
+  const agentPassword = await bcrypt.hash('Agent@123', 10);
+  const agent = await prisma.user.upsert({
+    where: { email: 'agent@allotech.cm' },
     update: {},
     create: {
-      email: 'manager@allotech.cm',
-      passwordHash: managerPassword,
-      firstName: 'Manager',
+      email: 'agent@allotech.cm',
+      passwordHash: agentPassword,
+      firstName: 'Agent',
       lastName: 'AlloTech',
-      role: UserRole.MANAGER,
+      role: UserRole.AGENT,
       status: UserStatus.ACTIVE,
       emailVerified: true,
     },
   });
-  console.log(`  ✓ Manager created: ${manager.email}`);
+  console.log(`  ✓ Agent created: ${agent.email}`);
 
   // ===========================================
   // NEED CATEGORIES
@@ -336,7 +336,7 @@ async function main() {
   console.log('\n📋 Demo Accounts:');
   console.log('─'.repeat(50));
   console.log('Admin:      admin@allotech.cm / Admin@123');
-  console.log('Manager:    manager@allotech.cm / Manager@123');
+  console.log('Agent:      agent@allotech.cm / Agent@123');
   console.log('Client:     client@demo.com / Client@123');
   console.log('Technician: electricien@demo.com / Tech@123');
   console.log('Technician: plombier@demo.com / Tech@123');

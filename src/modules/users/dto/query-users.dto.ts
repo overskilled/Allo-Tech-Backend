@@ -6,7 +6,7 @@ import { PaginationDto } from '../../../common/dto/pagination.dto';
 export enum UserRoleFilter {
   CLIENT = 'CLIENT',
   TECHNICIAN = 'TECHNICIAN',
-  MANAGER = 'MANAGER',
+  AGENT = 'AGENT',
   ADMIN = 'ADMIN',
 }
 

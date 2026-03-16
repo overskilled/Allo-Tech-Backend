@@ -518,7 +518,7 @@ export class ManagerService {
   }
 
   // ==========================================
-  // MANAGER DASHBOARD
+  // AGENT DASHBOARD
   // ==========================================
 
   async getManagerDashboard() {

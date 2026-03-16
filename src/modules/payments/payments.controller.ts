@@ -184,7 +184,7 @@ export class PaymentsController {
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all payments (admin)' })
   @ApiResponse({ status: 200, description: 'Returns all payments' })
@@ -194,7 +194,7 @@ export class PaymentsController {
 
   @Get('stats')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get payment statistics (admin)' })
   @ApiResponse({ status: 200, description: 'Returns payment stats' })

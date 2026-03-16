@@ -480,7 +480,7 @@ export class AgentsService {
 
     // Calculate rank among all agents
     const allAgents = await this.prisma.user.findMany({
-      where: { role: 'MANAGER' },
+      where: { role: 'AGENT' },
       select: { id: true },
     });
 
@@ -520,7 +520,7 @@ export class AgentsService {
 
   async getAllAgentPerformances() {
     const agents = await this.prisma.user.findMany({
-      where: { role: 'MANAGER' },
+      where: { role: 'AGENT' },
       select: {
         id: true,
         firstName: true,
@@ -602,7 +602,7 @@ export class AgentsService {
       lastMonthMissions,
       onboardingFunnel,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { role: 'MANAGER' } }),
+      this.prisma.user.count({ where: { role: 'AGENT' } }),
       this.prisma.fieldVisit.count(),
       this.prisma.technicianOnboarding.count(),
       this.prisma.user.count({ where: { role: 'TECHNICIAN' } }),

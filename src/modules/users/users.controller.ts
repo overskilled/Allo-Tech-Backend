@@ -240,7 +240,7 @@ export class UsersController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'List all users (Admin/Manager only)' })
   @ApiResponse({ status: 200, description: 'Users list' })
   async listUsers(@Query() query: QueryUsersDto) {
@@ -249,7 +249,7 @@ export class UsersController {
 
   @Patch(':id/status')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Update user status (Admin/Manager only)' })
   @ApiParam({ name: 'id', description: 'User ID' })
   @ApiResponse({ status: 200, description: 'User status updated' })
@@ -262,7 +262,7 @@ export class UsersController {
 
   @Patch(':id/verify-technician')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Verify technician (Admin/Manager only)' })
   @ApiParam({ name: 'id', description: 'User ID of the technician' })
   @ApiResponse({ status: 200, description: 'Technician verified' })

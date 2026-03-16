@@ -33,7 +33,7 @@ import { ActivateLicenseDto, RenewLicenseDto } from '../licenses/dto/license.dto
 @ApiTags('Manager')
 @Controller('manager')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('MANAGER', 'ADMIN')
+@Roles('AGENT', 'ADMIN')
 @ApiBearerAuth()
 export class ManagerController {
   constructor(private readonly managerService: ManagerService) {}

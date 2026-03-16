@@ -66,7 +66,7 @@ export class NeedsController {
   // ==========================================
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @Post('categories')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create category (Admin/Manager)' })
@@ -76,7 +76,7 @@ export class NeedsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @Put('categories/:id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update category (Admin/Manager)' })
@@ -106,7 +106,7 @@ export class NeedsController {
   // ==========================================
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @Post('categories/:categoryId/sub-categories')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create sub-category (Admin/Manager)' })
@@ -120,7 +120,7 @@ export class NeedsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @Put('sub-categories/:id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update sub-category (Admin/Manager)' })
@@ -309,7 +309,7 @@ export class NeedsController {
   // ==========================================
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @Patch(':id/status')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update need status (Admin/Manager)' })

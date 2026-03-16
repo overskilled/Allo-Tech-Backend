@@ -161,7 +161,7 @@ export class TeamsController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get all teams (admin)' })
   @ApiResponse({ status: 200, description: 'Returns all teams' })
   getAllTeams(@Query() query: QueryTeamsDto) {

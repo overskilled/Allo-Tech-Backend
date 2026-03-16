@@ -67,7 +67,7 @@ async function bootstrap() {
         ## Roles
         - **CLIENT**: End users looking for technical services
         - **TECHNICIAN**: Service providers
-        - **MANAGER**: Platform managers
+        - **AGENT**: Platform agents
         - **ADMIN**: System administrators
       `)
       .setVersion('1.0.0')

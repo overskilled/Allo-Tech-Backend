@@ -40,7 +40,7 @@ export class AdminController {
   // ==========================================
 
   @Get('dashboard')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get dashboard statistics' })
   @ApiResponse({ status: 200, description: 'Returns dashboard stats' })
   getDashboardStats() {
@@ -48,7 +48,7 @@ export class AdminController {
   }
 
   @Get('dashboard/growth')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get user growth statistics' })
   @ApiResponse({ status: 200, description: 'Returns growth stats' })
   getGrowthStats(@Query() range: DateRangeDto) {
@@ -56,7 +56,7 @@ export class AdminController {
   }
 
   @Get('dashboard/revenue')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get revenue statistics' })
   @ApiResponse({ status: 200, description: 'Returns revenue stats' })
   getRevenueStats(@Query() range: DateRangeDto) {
@@ -64,7 +64,7 @@ export class AdminController {
   }
 
   @Get('dashboard/activity')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get recent activity' })
   @ApiResponse({ status: 200, description: 'Returns recent activities' })
   getRecentActivity(@Query('limit') limit?: number) {
@@ -76,7 +76,7 @@ export class AdminController {
   // ==========================================
 
   @Get('users')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get all users' })
   @ApiResponse({ status: 200, description: 'Returns users' })
   getUsers(@Query() query: QueryUsersDto) {
@@ -84,7 +84,7 @@ export class AdminController {
   }
 
   @Get('users/:id')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiResponse({ status: 200, description: 'Returns user details' })
   getUserById(@Param('id') id: string) {
@@ -124,7 +124,7 @@ export class AdminController {
   // ==========================================
 
   @Get('verifications')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get pending technician verifications' })
   @ApiResponse({ status: 200, description: 'Returns pending verifications' })
   getPendingVerifications(@Query() query: QueryUsersDto) {
@@ -132,7 +132,7 @@ export class AdminController {
   }
 
   @Post('verifications/:userId/approve')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Approve technician verification' })
   @ApiResponse({ status: 200, description: 'Technician verified' })
   verifyTechnician(@Param('userId') userId: string, @Body() dto: VerifyTechnicianDto) {
@@ -140,7 +140,7 @@ export class AdminController {
   }
 
   @Post('verifications/:userId/reject')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Reject technician verification' })
   @ApiResponse({ status: 200, description: 'Verification rejected' })
   rejectVerification(

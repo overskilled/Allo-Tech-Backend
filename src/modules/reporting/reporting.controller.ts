@@ -26,7 +26,7 @@ import {
 @ApiTags('Reporting')
 @Controller('reports')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN', 'MANAGER')
+@Roles('ADMIN', 'AGENT')
 @ApiBearerAuth()
 export class ReportingController {
   constructor(private readonly reportingService: ReportingService) {}

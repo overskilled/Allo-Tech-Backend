@@ -104,7 +104,7 @@ export class LicensesController {
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all licenses (admin)' })
   @ApiResponse({ status: 200, description: 'Returns all licenses' })
@@ -119,7 +119,7 @@ export class LicensesController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get license by ID (admin)' })
   @ApiResponse({ status: 200, description: 'Returns the license' })
@@ -129,7 +129,7 @@ export class LicensesController {
 
   @Post(':id/activate')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Activate a license (admin)' })
   @ApiResponse({ status: 200, description: 'License activated' })
@@ -139,7 +139,7 @@ export class LicensesController {
 
   @Post(':id/renew')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Renew a license (admin)' })
   @ApiResponse({ status: 200, description: 'License renewed' })
@@ -149,7 +149,7 @@ export class LicensesController {
 
   @Get('user/:userId')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get license by user ID (admin)' })
   @ApiResponse({ status: 200, description: 'Returns user license' })

@@ -133,7 +133,7 @@ async function main() {
       passwordHash: await bcrypt.hash('Manager@123', SALT_ROUNDS),
       firstName: 'Manager',
       lastName: 'AlloTech',
-      role: UserRole.MANAGER,
+      role: UserRole.AGENT,
       status: UserStatus.ACTIVE,
       emailVerified: true,
     },

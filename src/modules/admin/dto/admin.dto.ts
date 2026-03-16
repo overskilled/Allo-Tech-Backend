@@ -14,7 +14,7 @@ export enum UserFilterRole {
   ALL = 'all',
   CLIENT = 'CLIENT',
   TECHNICIAN = 'TECHNICIAN',
-  MANAGER = 'MANAGER',
+  AGENT = 'AGENT',
   ADMIN = 'ADMIN',
 }
 

@@ -89,7 +89,7 @@ export class SupportController {
 
   @Get('admin/tickets')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get all tickets (staff)' })
   @ApiResponse({ status: 200, description: 'Returns all tickets' })
   getAllTickets(@Query() query: QueryTicketsDto) {
@@ -98,7 +98,7 @@ export class SupportController {
 
   @Get('admin/tickets/stats')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get ticket statistics' })
   @ApiResponse({ status: 200, description: 'Returns ticket stats' })
   getTicketStats() {
@@ -107,7 +107,7 @@ export class SupportController {
 
   @Get('admin/tickets/:id')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Get ticket details (staff)' })
   @ApiResponse({ status: 200, description: 'Returns ticket details' })
   getStaffTicketById(@Param('id') id: string) {
@@ -116,7 +116,7 @@ export class SupportController {
 
   @Put('admin/tickets/:id')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Update ticket (staff)' })
   @ApiResponse({ status: 200, description: 'Ticket updated' })
   updateTicket(@Param('id') id: string, @Body() dto: UpdateTicketDto) {
@@ -125,7 +125,7 @@ export class SupportController {
 
   @Post('admin/tickets/:id/responses')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Add staff response to ticket' })
   @ApiResponse({ status: 201, description: 'Response added' })
   addStaffResponse(
@@ -138,7 +138,7 @@ export class SupportController {
 
   @Post('admin/tickets/:id/assign')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Assign ticket to self' })
   @ApiResponse({ status: 200, description: 'Ticket assigned' })
   assignTicket(@Param('id') id: string, @CurrentUser('id') staffId: string) {
@@ -147,7 +147,7 @@ export class SupportController {
 
   @Post('admin/tickets/:id/resolve')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'AGENT')
   @ApiOperation({ summary: 'Resolve ticket' })
   @ApiResponse({ status: 200, description: 'Ticket resolved' })
   resolveTicket(@Param('id') id: string) {
