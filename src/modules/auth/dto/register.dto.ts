@@ -18,9 +18,10 @@ export enum RegisterRole {
 }
 
 export class RegisterDto {
-  @ApiProperty({ example: 'john@example.com' })
+  @ApiPropertyOptional({ example: 'john@example.com' })
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
 
   @ApiProperty({ example: 'SecurePass123!' })
   @IsString()
