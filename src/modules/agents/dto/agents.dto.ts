@@ -177,6 +177,7 @@ export class CreateOnboardingDto {
 
   @ApiPropertyOptional({ description: 'Technician email' })
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsEmail()
   technicianEmail?: string;
 
@@ -246,6 +247,7 @@ export class UpdateOnboardingDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsEmail()
   technicianEmail?: string;
 
