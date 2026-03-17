@@ -159,7 +159,7 @@ enum TicketCategory {
 
 model User {
   id                String      @id @default(uuid())
-  email             String?     @unique
+  email             String      @unique
   passwordHash      String?
   firstName         String
   lastName          String
