@@ -212,6 +212,14 @@ export class AuthService {
   }
 
   async selectRole(userId: string, role: 'CLIENT' | 'TECHNICIAN') {
+    const existing = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!existing) throw new BadRequestException('User not found');
+
+    // Prevent agents/admins from having their role overwritten
+    if (existing.role === UserRole.AGENT || existing.role === UserRole.ADMIN) {
+      throw new BadRequestException('Cannot change role for this account type');
+    }
+
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { role: role as UserRole },
@@ -230,6 +238,11 @@ export class AuthService {
 
     if (!user) {
       throw new BadRequestException('User not found');
+    }
+
+    // Prevent agents/admins from accidentally completing a client profile
+    if (user.role === UserRole.AGENT || user.role === UserRole.ADMIN) {
+      throw new BadRequestException('Cannot complete client profile for this account type');
     }
 
     // Update user phone
@@ -289,6 +302,11 @@ export class AuthService {
 
     if (!user) {
       throw new BadRequestException('User not found');
+    }
+
+    // Prevent agents/admins from accidentally completing a technician profile
+    if (user.role === UserRole.AGENT || user.role === UserRole.ADMIN) {
+      throw new BadRequestException('Cannot complete technician profile for this account type');
     }
 
     // Update user phone

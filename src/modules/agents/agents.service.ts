@@ -423,7 +423,7 @@ export class AgentsService {
     ]);
 
     const conversionRate = totalVisits > 0
-      ? Math.round((completedOnboardings / totalVisits) * 100)
+      ? Math.min(100, Math.round((completedOnboardings / totalVisits) * 100))
       : 0;
 
     // Build daily activity for the last 30 days
@@ -558,7 +558,7 @@ export class AgentsService {
           totalVisits,
           completedOnboardings,
           conversionRate: totalVisits > 0
-            ? Math.round((completedOnboardings / totalVisits) * 100)
+            ? Math.min(100, Math.round((completedOnboardings / totalVisits) * 100))
             : 0,
           weeklyVisits,
           weeklyOnboardings,
@@ -625,11 +625,14 @@ export class AgentsService {
     ]);
 
     const overallConversionRate = totalFieldVisits > 0
-      ? Math.round((completedOnboardings / totalFieldVisits) * 100)
+      ? Math.min(100, Math.round((completedOnboardings / totalFieldVisits) * 100))
       : 0;
 
-    const calcGrowth = (current: number, previous: number) =>
-      previous > 0 ? Math.round(((current - previous) / previous) * 100) : current > 0 ? 100 : 0;
+    const calcGrowth = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      const growth = Math.round(((current - previous) / previous) * 100);
+      return Math.max(-100, Math.min(growth, 999));
+    };
 
     // Build onboarding funnel
     const funnelMap: Record<string, number> = {};
