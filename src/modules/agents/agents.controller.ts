@@ -219,7 +219,7 @@ export class AdminAgentsController {
       limit: limit ? Number(limit) : undefined,
       sortBy,
       sortOrder: sortOrder as 'asc' | 'desc' | undefined,
-    });
+    } as any);
   }
 
   @Get('agents/:agentId/onboardings')
@@ -235,7 +235,7 @@ export class AdminAgentsController {
       limit: limit ? Number(limit) : undefined,
       sortBy,
       sortOrder: sortOrder as 'asc' | 'desc' | undefined,
-    });
+    } as any);
   }
 
   @Get('agents/:agentId/profile')
