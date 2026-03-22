@@ -205,4 +205,43 @@ export class AdminAgentsController {
   getAgentPerformance(@Param('agentId') agentId: string) {
     return this.agentsService.getAgentPerformance(agentId);
   }
+
+  @Get('agents/:agentId/visits')
+  @ApiOperation({ summary: 'Get agent field visits' })
+  @ApiResponse({ status: 200, description: 'Returns agent visits with onboardings' })
+  getAgentVisits(
+    @Param('agentId') agentId: string,
+    @Query('limit') limit?: number,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+  ) {
+    return this.agentsService.getFieldVisits(agentId, {
+      limit: limit ? Number(limit) : undefined,
+      sortBy,
+      sortOrder,
+    });
+  }
+
+  @Get('agents/:agentId/onboardings')
+  @ApiOperation({ summary: 'Get agent onboardings' })
+  @ApiResponse({ status: 200, description: 'Returns agent onboardings' })
+  getAgentOnboardings(
+    @Param('agentId') agentId: string,
+    @Query('limit') limit?: number,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+  ) {
+    return this.agentsService.getOnboardings(agentId, {
+      limit: limit ? Number(limit) : undefined,
+      sortBy,
+      sortOrder,
+    });
+  }
+
+  @Get('agents/:agentId/profile')
+  @ApiOperation({ summary: 'Get agent user profile' })
+  @ApiResponse({ status: 200, description: 'Returns agent user details' })
+  getAgentProfile(@Param('agentId') agentId: string) {
+    return this.agentsService.getAgentProfile(agentId);
+  }
 }

@@ -638,26 +638,26 @@ export class AgentsService {
     const funnelMap: Record<string, number> = {};
     onboardingFunnel.forEach((o) => { funnelMap[o.status] = o._count.id; });
 
-    // Weekly activity (last 8 weeks)
+    // Daily activity (last 7 days)
     const weeklyActivity: { date: string; visits: number; onboardings: number }[] = [];
-    for (let i = 7; i >= 0; i--) {
-      const weekStart = new Date(now);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay() - i * 7);
-      weekStart.setHours(0, 0, 0, 0);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 7);
+    for (let i = 6; i >= 0; i--) {
+      const dayStart = new Date(now);
+      dayStart.setDate(dayStart.getDate() - i);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
 
       const [visits, onboardings] = await Promise.all([
         this.prisma.fieldVisit.count({
-          where: { scheduledAt: { gte: weekStart, lt: weekEnd } },
+          where: { scheduledAt: { gte: dayStart, lt: dayEnd } },
         }),
         this.prisma.technicianOnboarding.count({
-          where: { createdAt: { gte: weekStart, lt: weekEnd } },
+          where: { createdAt: { gte: dayStart, lt: dayEnd } },
         }),
       ]);
 
       weeklyActivity.push({
-        date: weekStart.toISOString().slice(0, 10),
+        date: dayStart.toISOString().slice(0, 10),
         visits,
         onboardings,
       });
@@ -700,5 +700,29 @@ export class AgentsService {
         rejected: funnelMap['REJECTED'] || 0,
       },
     };
+  }
+
+  async getAgentProfile(agentId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: agentId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        profileImage: true,
+        role: true,
+        status: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+
+    if (!user || user.role !== 'AGENT') {
+      throw new BadRequestException('Agent not found');
+    }
+
+    return user;
   }
 }
