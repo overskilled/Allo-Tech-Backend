@@ -218,7 +218,7 @@ export class AdminAgentsController {
     return this.agentsService.getFieldVisits(agentId, {
       limit: limit ? Number(limit) : undefined,
       sortBy,
-      sortOrder,
+      sortOrder: sortOrder as 'asc' | 'desc' | undefined,
     });
   }
 
@@ -234,7 +234,7 @@ export class AdminAgentsController {
     return this.agentsService.getOnboardings(agentId, {
       limit: limit ? Number(limit) : undefined,
       sortBy,
-      sortOrder,
+      sortOrder: sortOrder as 'asc' | 'desc' | undefined,
     });
   }
 
