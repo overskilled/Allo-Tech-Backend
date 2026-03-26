@@ -663,13 +663,26 @@ export class AgentsService {
       });
     }
 
-    // Top categories from onboarded technicians
-    const topCategories = await this.prisma.technicianOnboarding.groupBy({
+    // Top categories from onboarded technicians — normalize to merge duplicates
+    const rawCategories = await this.prisma.technicianOnboarding.groupBy({
       by: ['profession'],
       _count: { id: true },
       orderBy: { _count: { id: 'desc' } },
-      take: 10,
     });
+    // Merge entries that differ only by case/whitespace/accents
+    const categoryMap = new Map<string, { name: string; count: number }>();
+    for (const c of rawCategories) {
+      const key = c.profession.trim().toLowerCase();
+      const existing = categoryMap.get(key);
+      if (existing) {
+        existing.count += c._count.id;
+      } else {
+        categoryMap.set(key, { name: c.profession.trim(), count: c._count.id });
+      }
+    }
+    const topCategories = [...categoryMap.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
 
     const agentPerformances = await this.getAllAgentPerformances();
 
@@ -689,10 +702,7 @@ export class AgentsService {
         missions: calcGrowth(thisMonthMissions, lastMonthMissions),
       },
       weeklyActivity,
-      topCategories: topCategories.map((c) => ({
-        name: c.profession,
-        count: c._count.id,
-      })),
+      topCategories,
       agentPerformances,
       onboardingFunnel: {
         pending: funnelMap['PENDING'] || 0,
