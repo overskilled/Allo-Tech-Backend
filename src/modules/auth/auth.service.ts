@@ -245,13 +245,14 @@ export class AuthService {
       throw new BadRequestException('Cannot complete client profile for this account type');
     }
 
-    // Update user phone
+    // Update user phone and avatar
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         phone: dto.phone,
         role: UserRole.CLIENT,
         status: UserStatus.TRIAL, // Activate account
+        ...(dto.profileImage && { profileImage: dto.profileImage }),
       },
     });
 
@@ -309,13 +310,14 @@ export class AuthService {
       throw new BadRequestException('Cannot complete technician profile for this account type');
     }
 
-    // Update user phone
+    // Update user phone and avatar
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         phone: dto.phone,
         role: UserRole.TECHNICIAN,
         status: UserStatus.TRIAL,
+        ...(dto.profileImage && { profileImage: dto.profileImage }),
       },
     });
 

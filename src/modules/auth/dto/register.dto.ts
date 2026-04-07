@@ -92,6 +92,11 @@ export class CompleteProfileClientDto {
   @Min(-180)
   @Max(180)
   longitude?: number;
+
+  @ApiPropertyOptional({ description: 'URL of profile avatar (e.g. DiceBear)' })
+  @IsOptional()
+  @IsString()
+  profileImage?: string;
 }
 
 export class CompleteProfileTechnicianDto {
@@ -143,4 +148,9 @@ export class CompleteProfileTechnicianDto {
   @Min(-180)
   @Max(180)
   longitude?: number;
+
+  @ApiPropertyOptional({ description: 'URL of profile avatar (e.g. DiceBear)' })
+  @IsOptional()
+  @IsString()
+  profileImage?: string;
 }

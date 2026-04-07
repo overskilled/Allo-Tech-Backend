@@ -24,6 +24,7 @@ export enum StorageProvider {
   S3 = 's3',
   CLOUDINARY = 'cloudinary',
   APPWRITE = 'appwrite',
+  FIREBASE = 'firebase',
 }
 
 export class UploadFileDto {
@@ -89,7 +90,7 @@ export const FILE_SIZE_LIMITS: Record<UploadType, number> = {
 // Allowed MIME types by upload type
 export const ALLOWED_MIME_TYPES: Record<UploadType, string[]> = {
   [UploadType.PROFILE]: ['image/jpeg', 'image/png', 'image/webp'],
-  [UploadType.NEED]: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  [UploadType.NEED]: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'],
   [UploadType.NEED_VIDEO]: ['video/mp4', 'video/webm', 'video/quicktime', 'video/ogg'],
   [UploadType.REALIZATION]: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   [UploadType.QUOTATION]: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],

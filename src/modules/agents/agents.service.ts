@@ -13,6 +13,8 @@ import {
   CreateOnboardingDto,
   UpdateOnboardingDto,
   QueryOnboardingsDto,
+  CreateClientAccountDto,
+  QueryAgentClientsDto,
 } from './dto/agents.dto';
 
 @Injectable()
@@ -734,5 +736,219 @@ export class AgentsService {
     }
 
     return user;
+  }
+
+  async getProfessionStats() {
+    // All professions grouped
+    const raw = await this.prisma.technicianOnboarding.groupBy({
+      by: ['profession'],
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+    });
+
+    // Normalize and merge
+    const profMap = new Map<string, { name: string; count: number }>();
+    for (const r of raw) {
+      const key = r.profession.trim().toLowerCase();
+      const existing = profMap.get(key);
+      if (existing) {
+        existing.count += r._count.id;
+      } else {
+        profMap.set(key, { name: r.profession.trim(), count: r._count.id });
+      }
+    }
+    const professions = [...profMap.values()].sort((a, b) => b.count - a.count);
+    const total = professions.reduce((sum, p) => sum + p.count, 0);
+
+    // Category classification
+    const categories: Record<string, string[]> = {
+      'BTP / Construction': ['maçon', 'ingénieur civil', 'ferrailleur', 'coffreur', 'technicien bâtiment', 'étanchéiste', 'btp', 'manoeuvre', 'foreur', 'forage'],
+      'Électricité': ['électricien', 'électrotechnicien', 'électromécanicien', 'électrotechnique'],
+      'Plomberie': ['plombier', 'installateur sanitaire'],
+      'Menuiserie / Bois': ['menuisier', 'charpentier', 'charpente', 'vernisseur'],
+      'Soudure / Métallurgie': ['soudeur', 'chaudronnier', 'tôlier'],
+      'Peinture / Finition': ['peintre', 'carreleur', 'staffeur'],
+      'Froid / Climatisation': ['froid et climatisation', 'frigoriste'],
+      'Vitrerie': ['vitrier'],
+      'Mécanique / Auto': ['mécanicien', 'mécanicien auto', 'mécanicien btp', 'mécanicien poids lourd', 'machiniste', 'rebobineur'],
+      'Informatique / Télécom': ['maintenance informatique', 'vidéosurveillance', 'technicien telecom', 'infographe'],
+    };
+
+    const categoryStats = Object.entries(categories).map(([category, keywords]) => {
+      const count = professions
+        .filter((p) => keywords.some((kw) => p.name.toLowerCase().includes(kw)))
+        .reduce((sum, p) => sum + p.count, 0);
+      return { category, count, percentage: total > 0 ? Math.round((count / total) * 100) : 0 };
+    });
+
+    // Uncategorized
+    const categorizedNames = Object.values(categories).flat();
+    const uncategorized = professions
+      .filter((p) => !categorizedNames.some((kw) => p.name.toLowerCase().includes(kw)))
+      .reduce((sum, p) => sum + p.count, 0);
+    if (uncategorized > 0) {
+      categoryStats.push({ category: 'Autres', count: uncategorized, percentage: Math.round((uncategorized / total) * 100) });
+    }
+
+    categoryStats.sort((a, b) => b.count - a.count);
+
+    // By city distribution
+    const cityRaw = await this.prisma.technicianOnboarding.groupBy({
+      by: ['city'],
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: 10,
+    });
+    const cityDistribution = cityRaw.map((c) => ({
+      city: c.city,
+      count: c._count.id,
+    }));
+
+    // By status
+    const statusRaw = await this.prisma.technicianOnboarding.groupBy({
+      by: ['status'],
+      _count: { id: true },
+    });
+    const statusDistribution = statusRaw.map((s) => ({
+      status: s.status,
+      count: s._count.id,
+    }));
+
+    // Monthly trend (last 6 months)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const monthlyOnboardings = await this.prisma.technicianOnboarding.findMany({
+      where: { createdAt: { gte: sixMonthsAgo } },
+      select: { createdAt: true },
+    });
+    const monthlyMap = new Map<string, number>();
+    for (const o of monthlyOnboardings) {
+      const key = o.createdAt.toISOString().slice(0, 7); // YYYY-MM
+      monthlyMap.set(key, (monthlyMap.get(key) || 0) + 1);
+    }
+    const monthlyTrend = [...monthlyMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, count]) => ({ month, count }));
+
+    return {
+      total,
+      uniqueProfessions: professions.length,
+      professions,
+      categoryDistribution: categoryStats,
+      cityDistribution,
+      statusDistribution,
+      monthlyTrend,
+    };
+  }
+
+  // ==========================================
+  // CLIENT ACCOUNTS
+  // ==========================================
+
+  async createClientAccount(agentId: string, dto: CreateClientAccountDto) {
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing) throw new BadRequestException('Un compte avec cet email existe déjà');
+
+    const dicebear = (seed: string) =>
+      `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        role: 'CLIENT',
+        status: 'TRIAL',
+        emailVerified: true,
+        profileImage: dicebear(dto.email),
+        createdByAgentId: agentId,
+      },
+    });
+
+    await this.prisma.clientProfile.create({
+      data: {
+        userId: user.id,
+        neighborhood: dto.neighborhood,
+        city: dto.city,
+        address: dto.address,
+      },
+    });
+
+    await this.prisma.license.create({
+      data: {
+        userId: user.id,
+        status: 'TRIAL',
+        trialStartDate: new Date(),
+        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    return {
+      message: 'Compte client créé avec succès',
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        profileImage: user.profileImage,
+        status: user.status,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  async getAgentClients(agentId: string, query: QueryAgentClientsDto) {
+    const where: any = {
+      createdByAgentId: agentId,
+      role: 'CLIENT',
+      status: { in: ['TRIAL', 'ACTIVE'] },
+    };
+
+    if (query.city) {
+      where.clientProfile = { city: { contains: query.city, mode: 'insensitive' } };
+    }
+
+    if (query.search) {
+      where.OR = [
+        { firstName: { contains: query.search, mode: 'insensitive' } },
+        { lastName: { contains: query.search, mode: 'insensitive' } },
+        { email: { contains: query.search, mode: 'insensitive' } },
+        { phone: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip: query.skip,
+        take: query.take,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          profileImage: true,
+          status: true,
+          createdAt: true,
+          clientProfile: {
+            select: {
+              neighborhood: true,
+              city: true,
+              address: true,
+            },
+          },
+          license: {
+            select: { status: true, trialEndDate: true },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return createPaginatedResult(users, total, query);
   }
 }

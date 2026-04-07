@@ -18,7 +18,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
-import { QueryNotificationsDto } from './dto/notification.dto';
+import { QueryNotificationsDto, RegisterDeviceDto } from './dto/notification.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
@@ -95,5 +95,28 @@ export class NotificationsController {
   @ApiResponse({ status: 200, description: 'All notifications deleted' })
   async clearAllNotifications(@CurrentUser('id') userId: string) {
     return this.notificationsService.clearAllNotifications(userId);
+  }
+
+  // ==========================================
+  // DEVICE TOKEN ENDPOINTS
+  // ==========================================
+
+  @Post('device-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Register FCM device token for push notifications' })
+  @ApiResponse({ status: 200, description: 'Token registered' })
+  async registerDeviceToken(
+    @CurrentUser('id') userId: string,
+    @Body() dto: RegisterDeviceDto,
+  ) {
+    return this.notificationsService.registerDeviceToken(userId, dto);
+  }
+
+  @Delete('device-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Unregister FCM device token (on logout)' })
+  @ApiResponse({ status: 200, description: 'Token unregistered' })
+  async unregisterDeviceToken(@Body() dto: { token: string }) {
+    return this.notificationsService.unregisterDeviceToken(dto.token);
   }
 }

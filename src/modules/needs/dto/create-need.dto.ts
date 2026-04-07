@@ -97,14 +97,10 @@ export class CreateNeedDto {
   @IsString({ each: true })
   images?: string[];
 
-  @ApiPropertyOptional({ description: 'Video URL of the incident (from Appwrite)' })
+  @ApiPropertyOptional({ description: 'Video URL of the incident (Firebase Storage)' })
   @IsOptional()
   @IsString()
   videoUrl?: string;
-
-  @ApiProperty({ description: 'ID du paiement de dépôt de 2000 XAF' })
-  @IsString()
-  depositPaymentId: string;
 }
 
 export class UpdateNeedDto {

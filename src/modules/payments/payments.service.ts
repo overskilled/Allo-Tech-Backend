@@ -4,6 +4,8 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
@@ -11,6 +13,7 @@ import { LicensesService } from '../licenses/licenses.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PawaPayService } from './providers/pawapay.service';
 import { PayPalService } from './providers/paypal.service';
+import { QuotationsService } from '../quotations/quotations.service';
 import {
   InitiatePawaPayDto,
   InitiatePayPalDto,
@@ -32,7 +35,9 @@ export class PaymentsService {
     private readonly licensesService: LicensesService,
     private readonly notificationsService: NotificationsService,
     private readonly pawaPayService: PawaPayService,
-    private readonly paypalService: PayPalService
+    private readonly paypalService: PayPalService,
+    @Inject(forwardRef(() => QuotationsService))
+    private readonly quotationsService: QuotationsService,
   ) {}
 
   // ==========================================
@@ -373,6 +378,10 @@ export class PaymentsService {
     const paymentDetails = payment.paymentDetails
       ? JSON.parse(payment.paymentDetails as string)
       : {};
+
+    if (paymentDetails.purpose === PaymentPurpose.QUOTATION_PAYMENT) {
+      await this.quotationsService.onQuotationPaymentConfirmed(paymentId);
+    }
 
     if (paymentDetails.purpose === PaymentPurpose.LICENSE && payment.licenseId) {
       // Activate/renew license

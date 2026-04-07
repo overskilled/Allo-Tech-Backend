@@ -12,6 +12,7 @@ import {
   FILE_SIZE_LIMITS,
   ALLOWED_MIME_TYPES,
 } from './dto/upload.dto';
+import { FirebaseService } from '../firebase/firebase.service';
 
 @Injectable()
 export class UploadService {
@@ -32,7 +33,10 @@ export class UploadService {
   private readonly appwriteEndpoint: string;
   private readonly appwriteProjectId: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly firebaseService: FirebaseService,
+  ) {
     const provider = this.configService.get<string>('STORAGE_PROVIDER', 'local');
     this.storageProvider = provider as StorageProvider;
 
@@ -85,7 +89,9 @@ export class UploadService {
     const filename = `${randomUUID()}${ext}`;
     const filePath = this.getFilePath(type, userId, folder, filename);
 
-    if (this.storageProvider === StorageProvider.APPWRITE) {
+    if (this.storageProvider === StorageProvider.FIREBASE) {
+      return this.uploadToFirebase(file, filePath);
+    } else if (this.storageProvider === StorageProvider.APPWRITE) {
       return this.uploadToAppwrite(file, filePath);
     } else if (this.storageProvider === StorageProvider.LOCAL) {
       return this.uploadToLocal(file, filePath, filename);
@@ -102,6 +108,9 @@ export class UploadService {
     userId: string,
     folder?: string,
   ): Promise<UploadResult[]> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files provided');
+    }
     const results: UploadResult[] = [];
     for (const file of files) {
       const result = await this.uploadFile(file, type, userId, folder);
@@ -115,7 +124,9 @@ export class UploadService {
   // ==========================================
 
   async deleteFile(fileUrl: string): Promise<void> {
-    if (this.storageProvider === StorageProvider.APPWRITE) {
+    if (this.storageProvider === StorageProvider.FIREBASE) {
+      await this.deleteFromFirebase(fileUrl);
+    } else if (this.storageProvider === StorageProvider.APPWRITE) {
       await this.deleteFromAppwrite(fileUrl);
     } else if (this.storageProvider === StorageProvider.LOCAL) {
       await this.deleteFromLocal(fileUrl);
@@ -155,6 +166,46 @@ export class UploadService {
       key,
       expiresIn: 3600,
     };
+  }
+
+  // ==========================================
+  // FIREBASE STORAGE IMPLEMENTATION
+  // ==========================================
+
+  private async uploadToFirebase(
+    file: Express.Multer.File,
+    filePath: string,
+  ): Promise<UploadResult> {
+    const url = await this.firebaseService.uploadFile(
+      file.buffer,
+      filePath,
+      file.mimetype,
+    );
+
+    this.logger.log(`File uploaded to Firebase Storage: ${filePath}`);
+
+    return {
+      url,
+      key: filePath,
+      size: file.size,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
+    };
+  }
+
+  private async deleteFromFirebase(fileUrl: string): Promise<void> {
+    try {
+      // Extract GCS path from the Firebase Storage download URL
+      // URL format: https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded-path>?alt=media&token=...
+      const match = fileUrl.match(/\/o\/([^?]+)/);
+      if (!match) return;
+      const filePath = decodeURIComponent(match[1]);
+      const bucket = this.firebaseService.storage.bucket();
+      await bucket.file(filePath).delete({ ignoreNotFound: true });
+      this.logger.log(`File deleted from Firebase Storage: ${filePath}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete from Firebase Storage: ${(error as any).message}`);
+    }
   }
 
   // ==========================================

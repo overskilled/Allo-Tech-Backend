@@ -73,32 +73,61 @@ export class CandidaturesService {
       throw new BadRequestException('You have already applied for this need');
     }
 
-    const candidature = await this.prisma.candidature.create({
-      data: {
-        needId: dto.needId,
-        technicianId,
-        message: dto.message,
-        proposedDate: dto.proposedDate ? new Date(dto.proposedDate) : null,
-        proposedPrice: dto.proposedPrice,
-        status: 'PENDING',
-      },
-      include: {
-        need: {
-          select: {
-            id: true,
-            title: true,
-            category: { select: { name: true } },
-            client: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
+    // ---- Wallet: deduct 500 XAF candidature fee ----
+    const CANDIDATURE_FEE = 500;
+    const profile = technician.technicianProfile!;
+
+    if (profile.walletBalance < CANDIDATURE_FEE) {
+      throw new BadRequestException(
+        `Solde insuffisant. Vous avez besoin de ${CANDIDATURE_FEE} XAF pour postuler. Solde actuel: ${profile.walletBalance} XAF`,
+      );
+    }
+
+    const newBalance = profile.walletBalance - CANDIDATURE_FEE;
+
+    const [candidature] = await this.prisma.$transaction([
+      this.prisma.candidature.create({
+        data: {
+          needId: dto.needId,
+          technicianId,
+          message: dto.message,
+          proposedDate: dto.proposedDate ? new Date(dto.proposedDate) : null,
+          proposedPrice: dto.proposedPrice,
+          status: 'PENDING',
+        },
+        include: {
+          need: {
+            select: {
+              id: true,
+              title: true,
+              category: { select: { name: true } },
+              client: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+      this.prisma.technicianProfile.update({
+        where: { id: profile.id },
+        data: { walletBalance: newBalance },
+      }),
+      this.prisma.walletTransaction.create({
+        data: {
+          technicianProfileId: profile.id,
+          type: 'CANDIDATURE_FEE',
+          amount: -CANDIDATURE_FEE,
+          balanceAfter: newBalance,
+          description: `Frais de candidature pour le besoin "${dto.needId}"`,
+          referenceId: dto.needId,
+          referenceType: 'need',
+        },
+      }),
+    ]);
 
     // Notify client about new candidature
     if (candidature.need?.client?.id) {

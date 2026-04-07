@@ -27,6 +27,8 @@ import {
   CreateOnboardingDto,
   UpdateOnboardingDto,
   QueryOnboardingsDto,
+  CreateClientAccountDto,
+  QueryAgentClientsDto,
 } from './dto/agents.dto';
 
 @ApiTags('Agents')
@@ -243,5 +245,36 @@ export class AdminAgentsController {
   @ApiResponse({ status: 200, description: 'Returns agent user details' })
   getAgentProfile(@Param('agentId') agentId: string) {
     return this.agentsService.getAgentProfile(agentId);
+  }
+
+  @Get('professions/stats')
+  @ApiOperation({ summary: 'Get profession statistics' })
+  @ApiResponse({ status: 200, description: 'Returns profession distribution and stats' })
+  getProfessionStats() {
+    return this.agentsService.getProfessionStats();
+  }
+
+  // ==========================================
+  // CLIENT ACCOUNTS
+  // ==========================================
+
+  @Post('clients')
+  @ApiOperation({ summary: 'Create a client account (agent onboarding)' })
+  @ApiResponse({ status: 201, description: 'Client account created' })
+  createClientAccount(
+    @CurrentUser('id') agentId: string,
+    @Body() dto: CreateClientAccountDto,
+  ) {
+    return this.agentsService.createClientAccount(agentId, dto);
+  }
+
+  @Get('clients')
+  @ApiOperation({ summary: 'List clients created by this agent' })
+  @ApiResponse({ status: 200, description: 'Returns paginated list of agent-created clients' })
+  getAgentClients(
+    @CurrentUser('id') agentId: string,
+    @Query() query: QueryAgentClientsDto,
+  ) {
+    return this.agentsService.getAgentClients(agentId, query);
   }
 }

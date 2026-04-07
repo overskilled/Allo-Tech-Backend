@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -20,14 +21,20 @@ import { QuotationStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { MissionsService } from '../missions/missions.service';
 import { MailService } from '../mail/mail.service';
+import { PawaPayService } from '../payments/providers/pawapay.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class QuotationsService {
+  private readonly logger = new Logger(QuotationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => MissionsService))
     private readonly missionsService: MissionsService,
     private readonly mailService: MailService,
+    private readonly pawaPayService: PawaPayService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ==========================================
@@ -756,6 +763,219 @@ export class QuotationsService {
       message: 'Devis signé avec succès',
       quotation: this.formatQuotation(updated),
       mission,
+    };
+  }
+
+  // ==========================================
+  // PAYMENT HOLD / RELEASE FLOW
+  // ==========================================
+
+  /**
+   * Client initiates payment for an accepted quotation.
+   * Creates a PawaPay deposit and marks quotation as AWAITING_PAYMENT.
+   */
+  async payQuotation(
+    quotationId: string,
+    clientId: string,
+    dto: { phoneNumber: string; operator: string },
+  ) {
+    const quotation = await this.prisma.quotation.findUnique({
+      where: { id: quotationId },
+      include: {
+        need: { select: { id: true, title: true, clientId: true } },
+        technician: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    if (!quotation) throw new NotFoundException('Devis introuvable');
+    if (quotation.need.clientId !== clientId) throw new ForbiddenException('Non autorisé');
+    if (quotation.status !== 'ACCEPTED') {
+      throw new BadRequestException(
+        'Le devis doit être accepté avant de procéder au paiement',
+      );
+    }
+
+    const amount = Number(quotation.totalCost);
+
+    // Initiate PawaPay deposit
+    const pawapayResult = await this.pawaPayService.initiateDeposit({
+      amount,
+      currency: quotation.currency,
+      phoneNumber: dto.phoneNumber,
+      operator: dto.operator,
+      description: `Paiement devis AlloTech`,
+      metadata: { quotationId, needId: quotation.need.id },
+    });
+
+    const depositId = pawapayResult.depositId;
+
+    // Persist Payment record for tracking
+    const payment = await this.prisma.payment.create({
+      data: {
+        clientId,
+        technicianId: quotation.technicianId,
+        amount: amount,
+        currency: quotation.currency,
+        paymentMethod: 'mobile_money',
+        transactionId: depositId,
+        status: 'PENDING',
+        paymentDetails: JSON.stringify({
+          purpose: 'quotation_payment',
+          quotationId,
+          needId: quotation.need.id,
+          operator: dto.operator,
+          phoneNumber: dto.phoneNumber,
+          pawapayDepositId: depositId,
+        }),
+      },
+    });
+
+    // Update quotation status
+    await this.prisma.quotation.update({
+      where: { id: quotationId },
+      data: {
+        status: 'AWAITING_PAYMENT',
+        heldPaymentId: payment.id,
+        heldAmount: amount,
+      },
+    });
+
+    return {
+      paymentId: payment.id,
+      depositId,
+      amount,
+      currency: quotation.currency,
+      status: pawapayResult.status,
+      message: 'Paiement initié. Validez sur votre téléphone.',
+    };
+  }
+
+  /**
+   * Called by the PawaPay webhook when quotation payment is confirmed.
+   * Marks quotation as PAID — funds are now held by AlloTech.
+   */
+  async onQuotationPaymentConfirmed(paymentId: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+    });
+    if (!payment) return;
+
+    const details = payment.paymentDetails ? JSON.parse(payment.paymentDetails as string) : {};
+    if (details.purpose !== 'quotation_payment') return;
+
+    const { quotationId } = details;
+
+    const quotation = await this.prisma.quotation.update({
+      where: { id: quotationId },
+      data: { status: 'PAID' },
+      include: {
+        need: { select: { id: true, title: true, clientId: true } },
+        technician: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    // Notify technician — funds held, work can start
+    await this.notificationsService.createNotification({
+      userId: quotation.technicianId,
+      type: 'PAYMENT',
+      title: 'Paiement reçu — démarrez les travaux',
+      body: `Le client a payé ${Number(quotation.totalCost).toLocaleString('fr-FR')} XAF pour "${quotation.need.title}". Vous pouvez démarrer les travaux.`,
+      data: { quotationId, needId: quotation.need.id },
+    });
+
+    // Notify client — payment held
+    await this.notificationsService.createNotification({
+      userId: quotation.need.clientId,
+      type: 'PAYMENT',
+      title: 'Paiement confirmé',
+      body: `Votre paiement de ${Number(quotation.totalCost).toLocaleString('fr-FR')} XAF est sécurisé. ${quotation.technician.firstName} peut démarrer les travaux.`,
+      data: { quotationId, needId: quotation.need.id },
+    });
+
+    this.logger.log(`Quotation ${quotationId} payment confirmed. Funds held.`);
+  }
+
+  /**
+   * Client approves completion of work.
+   * Releases held funds to technician's wallet.
+   */
+  async approveCompletion(quotationId: string, clientId: string) {
+    const quotation = await this.prisma.quotation.findUnique({
+      where: { id: quotationId },
+      include: {
+        need: { select: { id: true, title: true, clientId: true } },
+        technician: {
+          include: { technicianProfile: true },
+        },
+        primaryMission: true,
+      },
+    });
+
+    if (!quotation) throw new NotFoundException('Devis introuvable');
+    if (quotation.need.clientId !== clientId) throw new ForbiddenException('Non autorisé');
+    if (quotation.status !== 'PAID') {
+      throw new BadRequestException(
+        'Les fonds ne peuvent être libérés que pour un devis dont le paiement est confirmé',
+      );
+    }
+
+    const techProfile = quotation.technician.technicianProfile;
+    if (!techProfile) throw new BadRequestException('Profil technicien introuvable');
+
+    const releaseAmount = Number(quotation.heldAmount ?? quotation.totalCost);
+    const newBalance = techProfile.walletBalance + releaseAmount;
+
+    await this.prisma.$transaction([
+      // Credit tech wallet
+      this.prisma.technicianProfile.update({
+        where: { id: techProfile.id },
+        data: { walletBalance: newBalance },
+      }),
+      // Wallet transaction record
+      this.prisma.walletTransaction.create({
+        data: {
+          technicianProfileId: techProfile.id,
+          type: 'MISSION_CREDIT',
+          amount: releaseAmount,
+          balanceAfter: newBalance,
+          description: `Paiement libéré — "${quotation.need.title}"`,
+          referenceId: quotationId,
+          referenceType: 'QUOTATION',
+        },
+      }),
+      // Mark payment as completed
+      ...(quotation.heldPaymentId
+        ? [this.prisma.payment.update({
+            where: { id: quotation.heldPaymentId },
+            data: { status: 'COMPLETED' },
+          })]
+        : []),
+      // Complete the associated mission if exists
+      ...(quotation.primaryMission
+        ? [this.prisma.mission.update({
+            where: { id: quotation.primaryMission.id },
+            data: { status: 'COMPLETED', completedAt: new Date() },
+          })]
+        : []),
+    ]);
+
+    // Notify technician
+    await this.notificationsService.createNotification({
+      userId: quotation.technicianId,
+      type: 'PAYMENT',
+      title: 'Fonds libérés 🎉',
+      body: `${releaseAmount.toLocaleString('fr-FR')} XAF ont été ajoutés à votre portefeuille pour "${quotation.need.title}".`,
+      data: { quotationId, amount: releaseAmount },
+    });
+
+    this.logger.log(
+      `Quotation ${quotationId} completion approved. ${releaseAmount} XAF released to tech ${quotation.technicianId}`,
+    );
+
+    return {
+      success: true,
+      amountReleased: releaseAmount,
+      newTechnicianBalance: newBalance,
     };
   }
 

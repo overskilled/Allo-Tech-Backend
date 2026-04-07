@@ -230,4 +230,31 @@ export class QuotationsController {
   ) {
     return this.counterProposalsService.respondToCounterProposal(cpId, userId, dto);
   }
+
+  // ==========================================
+  // PAYMENT HOLD / RELEASE
+  // ==========================================
+
+  @Post(':id/pay')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Client pays full quotation amount via PawaPay (funds held by AlloTech)' })
+  @ApiParam({ name: 'id', description: 'Quotation ID' })
+  async payQuotation(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: { phoneNumber: string; operator: string },
+  ) {
+    return this.quotationsService.payQuotation(id, userId, dto);
+  }
+
+  @Post(':id/approve-completion')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Client approves work completion — releases funds to technician wallet' })
+  @ApiParam({ name: 'id', description: 'Quotation ID' })
+  async approveCompletion(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.quotationsService.approveCompletion(id, userId);
+  }
 }

@@ -326,3 +326,48 @@ export class QueryOnboardingsDto extends PaginationDto {
   @IsDateString()
   dateTo?: string;
 }
+
+// ─── Client Account DTOs ─────────────────────────────────
+
+export class CreateClientAccountDto {
+  @ApiProperty({ example: 'jean.dupont@email.com' })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: 'Jean' })
+  @IsString()
+  firstName: string;
+
+  @ApiProperty({ example: 'Dupont' })
+  @IsString()
+  lastName: string;
+
+  @ApiProperty({ example: '+237612345678' })
+  @IsString()
+  phone: string;
+
+  @ApiProperty({ example: 'Akwa' })
+  @IsString()
+  neighborhood: string;
+
+  @ApiProperty({ example: 'Douala' })
+  @IsString()
+  city: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  address?: string;
+}
+
+export class QueryAgentClientsDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Filter by city' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ description: 'Search by name, email or phone' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}

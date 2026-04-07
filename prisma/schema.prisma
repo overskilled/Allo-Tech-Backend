@@ -70,7 +70,9 @@ enum QuotationStatus {
   DRAFT
   SENT
   COUNTER_PROPOSED
-  ACCEPTED
+  ACCEPTED           // client approved — awaiting payment
+  AWAITING_PAYMENT   // payment initiated, not yet confirmed
+  PAID               // full amount held by AlloTech — work can begin
   REJECTED
   EXPIRED
 }
@@ -111,6 +113,7 @@ enum NotificationType {
   MISSION
   COUNTER_PROPOSAL
   PROXIMITY_MATCH
+  CHANTIER
 }
 
 enum LicensePlan {
@@ -123,6 +126,15 @@ enum LicensePlan {
 enum PaymentProvider {
   PAWAPAY
   PAYPAL
+}
+
+enum WalletTransactionType {
+  CANDIDATURE_FEE      // -500 XAF when submitting a quotation on a need
+  MISSION_CREDIT       // + mission amount when client approves completion
+  PAYOUT               // - withdrawal to mobile money
+  REFUND               // + refund of candidature fee
+  ADMIN_CREDIT         // + manual admin adjustment
+  ADMIN_DEBIT          // - manual admin adjustment
 }
 
 enum MobileMoneyOperator {
@@ -218,9 +230,18 @@ model User {
   teamMemberships   TeamMember[]
   teamsCreated      Team[]              @relation("TeamCreator")
 
+  // Chantier relations
+  chantiersAsClient    Chantier[]         @relation("ClientChantiers")
+  chantierMemberships  ChantierMember[]   @relation("ChantierMemberships")
+
   // Agent relations
   fieldVisits       FieldVisit[]        @relation("AgentFieldVisits")
   onboardings       TechnicianOnboarding[] @relation("AgentOnboardings")
+  clientsCreated    User[]              @relation("AgentCreatedClients")
+
+  // Created by agent (for clients registered by an agent)
+  createdByAgentId  String?
+  createdByAgent    User?               @relation("AgentCreatedClients", fields: [createdByAgentId], references: [id])
 
   @@index([email])
   @@index([googleId])
@@ -330,6 +351,11 @@ model TechnicianProfile {
   availableTo       String?   // Time string "18:00"
   workDays          String    @default("[1,2,3,4,5]") // JSON array of day numbers
 
+  // Wallet
+  walletBalance     Float     @default(0)
+  walletTransactions WalletTransaction[]
+  payoutRequests    PayoutRequest[]
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -402,6 +428,58 @@ model Payment {
   @@index([technicianId])
   @@index([needId])
   @@index([status])
+}
+
+// ===========================================
+// WALLET TRANSACTIONS
+// ===========================================
+
+model WalletTransaction {
+  id                  String                  @id @default(uuid())
+  technicianProfileId String
+  technicianProfile   TechnicianProfile       @relation(fields: [technicianProfileId], references: [id], onDelete: Cascade)
+
+  type                WalletTransactionType
+  amount              Float                   // positive = credit, negative = debit
+  balanceAfter        Float
+  description         String
+  referenceId         String?                 // needId, missionId, payoutId etc.
+  referenceType       String?                 // 'NEED', 'MISSION', 'PAYOUT'
+
+  createdAt           DateTime                @default(now())
+
+  @@index([technicianProfileId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model PayoutRequest {
+  id                  String              @id @default(uuid())
+  technicianProfileId String
+  technicianProfile   TechnicianProfile   @relation(fields: [technicianProfileId], references: [id], onDelete: Cascade)
+
+  amount              Float
+  currency            String              @default("XAF")
+  operator            String              // MTN_MOMO_CMR | ORANGE_CMR
+  phoneNumber         String
+
+  status              PayoutStatus        @default(PENDING)
+  pawapayPayoutId     String?             // PawaPay payout transaction ID
+  processedAt         DateTime?
+  failureReason       String?
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([technicianProfileId])
+  @@index([status])
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 // ===========================================
@@ -634,6 +712,10 @@ model Quotation {
   // Response
   clientResponse  String?         @db.Text
   respondedAt     DateTime?
+
+  // Payment hold (escrow)
+  heldPaymentId   String?         // Payment.id of the held funds
+  heldAmount      Decimal?        @db.Decimal(10, 2)
 
   // Signature
   clientSignature          String?   @db.Text   // base64 PNG of drawn signature
@@ -1544,4 +1626,209 @@ model ReportCache {
 
   @@unique([reportType, period, dateKey])
   @@index([expiresAt])
+}
+
+// ===========================================
+// CHANTIER (Long-term Construction Projects)
+// ===========================================
+
+enum ChantierStatus {
+  DRAFT
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ChantierMemberStatus {
+  INVITED
+  ACCEPTED
+  DECLINED
+  REMOVED
+}
+
+enum ChantierPhaseStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum ChantierExpenseCategory {
+  MATERIALS
+  LABOR
+  TRANSPORT
+  EQUIPMENT_RENTAL
+  PERMITS
+  MISCELLANEOUS
+}
+
+model Chantier {
+  id              String          @id @default(uuid())
+
+  clientId        String
+  client          User            @relation("ClientChantiers", fields: [clientId], references: [id])
+
+  title           String
+  description     String          @db.Text
+  status          ChantierStatus  @default(DRAFT)
+
+  // Location
+  address         String?
+  neighborhood    String?
+  city            String?
+  latitude        Float?
+  longitude       Float?
+
+  // Budget (XAF)
+  totalBudget     Decimal         @db.Decimal(12, 2)
+  currency        String          @default("XAF")
+
+  // Scheduling
+  expectedStartDate  DateTime?
+  expectedEndDate    DateTime?
+  actualStartDate    DateTime?
+  actualEndDate      DateTime?
+
+  // Denormalized for performance
+  totalSpent      Decimal         @default(0) @db.Decimal(12, 2)
+  progressPercent Int             @default(0)
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  members         ChantierMember[]
+  phases          ChantierPhase[]
+  expenses        ChantierExpense[]
+  documents       ChantierDocument[]
+  notes           ChantierNote[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([city])
+}
+
+model ChantierMember {
+  id              String                @id @default(uuid())
+  chantierId      String
+  chantier        Chantier              @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+
+  userId          String
+  user            User                  @relation("ChantierMemberships", fields: [userId], references: [id])
+
+  specialty       String
+  role            String                @default("worker")  // "supervisor" | "worker"
+  status          ChantierMemberStatus  @default(INVITED)
+
+  // Compensation
+  dailyRate       Decimal?              @db.Decimal(10, 2)
+  fixedPrice      Decimal?              @db.Decimal(10, 2)
+
+  invitedAt       DateTime              @default(now())
+  respondedAt     DateTime?
+
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([chantierId, userId])
+  @@index([chantierId])
+  @@index([userId])
+  @@index([status])
+}
+
+model ChantierPhase {
+  id              String              @id @default(uuid())
+  chantierId      String
+  chantier        Chantier            @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?             @db.Text
+  status          ChantierPhaseStatus @default(PLANNED)
+  sortOrder       Int                 @default(0)
+
+  // Scheduling
+  expectedStartDate DateTime?
+  expectedEndDate   DateTime?
+  actualStartDate   DateTime?
+  actualEndDate     DateTime?
+
+  // Budget allocation for this phase
+  budgetAllocated Decimal?            @db.Decimal(12, 2)
+
+  // Progress (0-100)
+  progressPercent Int                 @default(0)
+
+  completedAt     DateTime?
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  // Relations
+  expenses        ChantierExpense[]
+
+  @@index([chantierId])
+  @@index([status])
+  @@index([sortOrder])
+}
+
+model ChantierExpense {
+  id              String                  @id @default(uuid())
+  chantierId      String
+  chantier        Chantier                @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+
+  phaseId         String?
+  phase           ChantierPhase?          @relation(fields: [phaseId], references: [id])
+
+  recordedBy      String
+
+  description     String
+  amount          Decimal                 @db.Decimal(10, 2)
+  currency        String                  @default("XAF")
+  category        ChantierExpenseCategory @default(MATERIALS)
+
+  receiptUrl      String?
+  expenseDate     DateTime                @default(now())
+
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([chantierId])
+  @@index([phaseId])
+  @@index([recordedBy])
+  @@index([category])
+}
+
+model ChantierDocument {
+  id              String    @id @default(uuid())
+  chantierId      String
+  chantier        Chantier  @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+
+  uploadedBy      String
+
+  fileUrl         String
+  fileName        String
+  fileType        String    // image, pdf, plan, receipt, video
+  caption         String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([chantierId])
+  @@index([uploadedBy])
+}
+
+model ChantierNote {
+  id              String    @id @default(uuid())
+  chantierId      String
+  chantier        Chantier  @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+
+  authorId        String
+  content         String    @db.Text
+
+  createdAt       DateTime  @default(now())
+
+  @@index([chantierId])
+  @@index([authorId])
+  @@index([createdAt])
 }

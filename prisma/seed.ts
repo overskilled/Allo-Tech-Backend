@@ -107,6 +107,9 @@ async function main() {
   // ===========================================
   console.log('👥 Seeding users...');
 
+  const dicebear = (seed: string) =>
+    `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
+
   const passwordHash = await bcrypt.hash('password123', SALT_ROUNDS);
 
   // Admin
@@ -136,6 +139,22 @@ async function main() {
       role: UserRole.AGENT,
       status: UserStatus.ACTIVE,
       emailVerified: true,
+    },
+  });
+
+  // Agent — Gabriella Momha
+  await prisma.user.upsert({
+    where: { email: 'gabriella.momha@allotech.cm' },
+    update: { profileImage: dicebear('gabriella.momha@allotech.cm') },
+    create: {
+      email: 'gabriella.momha@allotech.cm',
+      passwordHash: passwordHash,
+      firstName: 'Gabriella',
+      lastName: 'Momha',
+      role: UserRole.AGENT,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      profileImage: dicebear('gabriella.momha@allotech.cm'),
     },
   });
 
@@ -186,7 +205,7 @@ async function main() {
   const clients = await Promise.all([
     prisma.user.upsert({
       where: { email: 'client1@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('client1@demo.com') },
       create: {
         email: 'client1@demo.com',
         passwordHash: passwordHash,
@@ -196,11 +215,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('client1@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'client2@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('client2@demo.com') },
       create: {
         email: 'client2@demo.com',
         passwordHash: passwordHash,
@@ -210,11 +230,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('client2@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'client3@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('client3@demo.com') },
       create: {
         email: 'client3@demo.com',
         passwordHash: passwordHash,
@@ -224,11 +245,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('client3@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'client4@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('client4@demo.com') },
       create: {
         email: 'client4@demo.com',
         passwordHash: passwordHash,
@@ -238,11 +260,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('client4@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'client5@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('client5@demo.com') },
       create: {
         email: 'client5@demo.com',
         passwordHash: passwordHash,
@@ -252,6 +275,7 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('client5@demo.com'),
       },
     }),
   ]);
@@ -322,7 +346,7 @@ async function main() {
   const technicians = await Promise.all([
     prisma.user.upsert({
       where: { email: 'electricien@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('electricien@demo.com') },
       create: {
         email: 'electricien@demo.com',
         passwordHash: await bcrypt.hash('Tech@123', SALT_ROUNDS),
@@ -332,11 +356,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('electricien@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'plombier@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('plombier@demo.com') },
       create: {
         email: 'plombier@demo.com',
         passwordHash: await bcrypt.hash('Tech@123', SALT_ROUNDS),
@@ -346,11 +371,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('plombier@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'peintre@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('peintre@demo.com') },
       create: {
         email: 'peintre@demo.com',
         passwordHash: await bcrypt.hash('Tech@123', SALT_ROUNDS),
@@ -360,11 +386,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('peintre@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'menuisier@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('menuisier@demo.com') },
       create: {
         email: 'menuisier@demo.com',
         passwordHash: passwordHash,
@@ -374,11 +401,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('menuisier@demo.com'),
       },
     }),
     prisma.user.upsert({
       where: { email: 'climaticien@demo.com' },
-      update: {},
+      update: { profileImage: dicebear('climaticien@demo.com') },
       create: {
         email: 'climaticien@demo.com',
         passwordHash: passwordHash,
@@ -388,6 +416,7 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        profileImage: dicebear('climaticien@demo.com'),
       },
     }),
   ]);
@@ -1018,6 +1047,7 @@ async function main() {
   console.log('\n🔐 TEST ACCOUNTS:');
   console.log('  Admin: admin@allotech.cm / Admin@123');
   console.log('  Manager: manager@allotech.cm / Manager@123');
+  console.log('  Agent: gabriella.momha@allotech.cm / password123 (Gabriella Momha)');
   console.log('  Client 1: client1@demo.com / password123 (Jean Dupont - has completed mission)');
   console.log('  Client 2: client2@demo.com / password123 (Marie Kouam - has in-progress job)');
   console.log('  Technician 1: electricien@demo.com / Tech@123 (Paul Mbarga - completed mission)');

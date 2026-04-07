@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { FirebaseService } from '../firebase/firebase.service';
 import {
   CreateNotificationDto,
   BulkNotificationDto,
@@ -164,6 +165,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly firebaseService: FirebaseService,
   ) {}
 
   // Set gateway reference (called from module initialization)
@@ -339,6 +341,43 @@ export class NotificationsService {
   }
 
   // ==========================================
+  // DEVICE TOKEN MANAGEMENT
+  // ==========================================
+
+  async registerDeviceToken(
+    userId: string,
+    dto: { token: string; platform?: string; deviceName?: string },
+  ) {
+    // Upsert: if token already exists update lastUsedAt, otherwise create
+    await this.prisma.deviceToken.upsert({
+      where: { token: dto.token },
+      update: {
+        userId,
+        platform: dto.platform ?? 'android',
+        isActive: true,
+        lastUsedAt: new Date(),
+        deviceInfo: dto.deviceName ? JSON.stringify({ deviceName: dto.deviceName }) : undefined,
+      },
+      create: {
+        userId,
+        token: dto.token,
+        platform: dto.platform ?? 'android',
+        deviceInfo: dto.deviceName ? JSON.stringify({ deviceName: dto.deviceName }) : null,
+        isActive: true,
+      },
+    });
+    return { success: true };
+  }
+
+  async unregisterDeviceToken(token: string) {
+    await this.prisma.deviceToken.updateMany({
+      where: { token },
+      data: { isActive: false },
+    });
+    return { success: true };
+  }
+
+  // ==========================================
   // PUSH NOTIFICATION HELPERS
   // ==========================================
 
@@ -346,42 +385,45 @@ export class NotificationsService {
     userId: string,
     payload: { title: string; body: string; data?: any },
   ) {
-    // Get user's device tokens
-    // Note: This would require a DeviceToken model to be added to schema
-    // For now, we'll just log the attempt
-
-    const fcmServerKey = this.configService.get('FCM_SERVER_KEY');
-    if (!fcmServerKey) {
-      this.logger.debug('FCM not configured, skipping push notification');
+    if (!this.firebaseService.isInitialized) {
+      this.logger.debug('Firebase not initialized, skipping push notification');
       return;
     }
 
-    // TODO: Implement actual FCM push notification
-    // This would typically use the Firebase Admin SDK
-    /*
-    const tokens = await this.prisma.deviceToken.findMany({
-      where: { userId },
+    const deviceTokens = await this.prisma.deviceToken.findMany({
+      where: { userId, isActive: true },
       select: { token: true },
     });
 
-    if (tokens.length === 0) return;
+    if (deviceTokens.length === 0) return;
 
-    const message = {
-      notification: {
-        title: payload.title,
-        body: payload.body,
-      },
-      data: payload.data,
-      tokens: tokens.map(t => t.token),
-    };
+    const tokens = deviceTokens.map((d) => d.token);
 
-    try {
-      const response = await admin.messaging().sendMulticast(message);
-      this.logger.debug(`Push sent: ${response.successCount} success, ${response.failureCount} failed`);
-    } catch (error) {
-      this.logger.error(`Push notification error: ${error.message}`);
+    // Flatten data to string values for FCM
+    const fcmData: Record<string, string> | undefined = payload.data
+      ? Object.fromEntries(
+          Object.entries(payload.data).map(([k, v]) => [k, String(v)]),
+        )
+      : undefined;
+
+    const { successCount, failureCount, failedTokens } =
+      await this.firebaseService.sendMulticast(
+        tokens,
+        { title: payload.title, body: payload.body },
+        fcmData,
+      );
+
+    this.logger.debug(
+      `FCM push for user ${userId}: ${successCount} success, ${failureCount} failed`,
+    );
+
+    // Deactivate stale / invalid tokens
+    if (failedTokens.length > 0) {
+      await this.prisma.deviceToken.updateMany({
+        where: { token: { in: failedTokens } },
+        data: { isActive: false },
+      });
     }
-    */
   }
 
   private sendRealtimeNotification(userId: string, notification: any) {

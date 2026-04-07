@@ -8,3 +8,7 @@ coverage
 .vscode
 .idea
 *.log
+# Firebase service account keys — NEVER commit these
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+firebase-service-account.json

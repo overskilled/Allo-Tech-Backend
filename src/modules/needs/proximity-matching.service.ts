@@ -23,7 +23,7 @@ export class ProximityMatchingService {
       data: {
         needId,
         currentRadius: 5,
-        maxRadius: 50,
+        maxRadius: 30,
         expandEvery: 20,
         isActive: true,
         notifiedTechnicianIds: '[]',

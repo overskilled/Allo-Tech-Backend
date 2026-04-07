@@ -217,20 +217,6 @@ export class NeedsService {
       throw new BadRequestException('Only clients can create needs');
     }
 
-    // Validate 2000 XAF deposit payment
-    const deposit = await this.prisma.payment.findUnique({
-      where: { id: dto.depositPaymentId },
-    });
-    if (!deposit || deposit.status !== 'COMPLETED' || deposit.clientId !== clientId) {
-      throw new BadRequestException('Le paiement du dépôt de 2000 XAF est requis');
-    }
-    const alreadyUsed = await this.prisma.need.findFirst({
-      where: { depositPaymentId: dto.depositPaymentId },
-    });
-    if (alreadyUsed) {
-      throw new BadRequestException('Ce paiement est déjà utilisé pour une autre demande');
-    }
-
     const category = await this.prisma.needCategory.findUnique({
       where: { id: dto.categoryId },
     });
@@ -267,7 +253,6 @@ export class NeedsService {
         longitude: dto.longitude || user.clientProfile?.longitude,
         images: dto.images ? JSON.stringify(dto.images) : null,
         videoUrl: dto.videoUrl,
-        depositPaymentId: dto.depositPaymentId,
         status: 'OPEN',
       },
       include: {
@@ -282,12 +267,6 @@ export class NeedsService {
           },
         },
       },
-    });
-
-    // Link deposit payment to need
-    await this.prisma.payment.update({
-      where: { id: dto.depositPaymentId },
-      data: { needId: need.id },
     });
 
     // Create proximity broadcast for nearby technician matching
