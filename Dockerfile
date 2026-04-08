@@ -28,6 +28,9 @@ COPY --from=build /app/prisma ./prisma
 # Create uploads directory
 RUN mkdir -p /app/uploads
 
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["./docker-entrypoint.sh"]
