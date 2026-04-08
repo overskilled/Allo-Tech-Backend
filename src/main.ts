@@ -20,9 +20,12 @@ async function bootstrap() {
   app.use(helmet());
 
   // Enable CORS
-  const corsOrigins = configService.get<string>('CORS_ORIGIN', '*');
+  const corsOrigins = configService.get<string>('CORS_ORIGIN');
+  const originList = corsOrigins
+    ? corsOrigins.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
   app.enableCors({
-    origin: corsOrigins === '*' ? '*' : corsOrigins.split(','),
+    origin: originList.length > 0 ? originList : false,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
