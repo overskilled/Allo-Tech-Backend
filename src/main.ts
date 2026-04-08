@@ -16,10 +16,7 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  // Security headers
-  app.use(helmet());
-
-  // Enable CORS
+  // Enable CORS first — must run before helmet
   const corsOrigins = configService.get<string>('CORS_ORIGIN');
   const originList = corsOrigins
     ? corsOrigins.split(',').map((o) => o.trim()).filter(Boolean)
@@ -30,6 +27,13 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
+
+  // Security headers — crossOriginResourcePolicy must be cross-origin for API usage
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
 
   // API versioning
   app.setGlobalPrefix('api');
