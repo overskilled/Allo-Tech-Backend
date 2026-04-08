@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { FirebaseService } from '../firebase/firebase.service';
+import Expo, { ExpoPushMessage } from 'expo-server-sdk';
 import {
   CreateNotificationDto,
   BulkNotificationDto,
@@ -161,6 +162,7 @@ const NOTIFICATION_TEMPLATES = {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private wsGateway: any; // Will be injected after initialization
+  private readonly expo = new Expo();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -385,11 +387,6 @@ export class NotificationsService {
     userId: string,
     payload: { title: string; body: string; data?: any },
   ) {
-    if (!this.firebaseService.isInitialized) {
-      this.logger.debug('Firebase not initialized, skipping push notification');
-      return;
-    }
-
     const deviceTokens = await this.prisma.deviceToken.findMany({
       where: { userId, isActive: true },
       select: { token: true },
@@ -397,32 +394,83 @@ export class NotificationsService {
 
     if (deviceTokens.length === 0) return;
 
-    const tokens = deviceTokens.map((d) => d.token);
+    const expoTokens: string[] = [];
+    const fcmTokens: string[] = [];
 
-    // Flatten data to string values for FCM
-    const fcmData: Record<string, string> | undefined = payload.data
-      ? Object.fromEntries(
-          Object.entries(payload.data).map(([k, v]) => [k, String(v)]),
-        )
-      : undefined;
+    for (const { token } of deviceTokens) {
+      if (Expo.isExpoPushToken(token)) {
+        expoTokens.push(token);
+      } else {
+        fcmTokens.push(token);
+      }
+    }
 
-    const { successCount, failureCount, failedTokens } =
-      await this.firebaseService.sendMulticast(
-        tokens,
-        { title: payload.title, body: payload.body },
-        fcmData,
+    // ── Expo push (works in Expo Go + production) ──────────────────────────
+    if (expoTokens.length > 0) {
+      const messages: ExpoPushMessage[] = expoTokens.map((to) => ({
+        to,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data ?? {},
+        sound: 'default',
+        priority: 'high',
+      }));
+
+      const chunks = this.expo.chunkPushNotifications(messages);
+      const failedExpoTokens: string[] = [];
+
+      for (const chunk of chunks) {
+        try {
+          const tickets = await this.expo.sendPushNotificationsAsync(chunk);
+          tickets.forEach((ticket, idx) => {
+            if (ticket.status === 'error') {
+              const errorCode = (ticket as any).details?.error;
+              if (errorCode === 'DeviceNotRegistered') {
+                failedExpoTokens.push((chunk[idx] as any).to as string);
+              }
+              this.logger.warn(`Expo push error for token: ${ticket.message}`);
+            }
+          });
+        } catch (err) {
+          this.logger.error(`Expo push chunk error: ${(err as Error).message}`);
+        }
+      }
+
+      if (failedExpoTokens.length > 0) {
+        await this.prisma.deviceToken.updateMany({
+          where: { token: { in: failedExpoTokens } },
+          data: { isActive: false },
+        });
+      }
+
+      this.logger.debug(`Expo push for user ${userId}: sent to ${expoTokens.length} token(s)`);
+    }
+
+    // ── FCM push (native/production builds) ────────────────────────────────
+    if (fcmTokens.length > 0 && this.firebaseService.isInitialized) {
+      const fcmData: Record<string, string> | undefined = payload.data
+        ? Object.fromEntries(
+            Object.entries(payload.data).map(([k, v]) => [k, String(v)]),
+          )
+        : undefined;
+
+      const { successCount, failureCount, failedTokens } =
+        await this.firebaseService.sendMulticast(
+          fcmTokens,
+          { title: payload.title, body: payload.body },
+          fcmData,
+        );
+
+      this.logger.debug(
+        `FCM push for user ${userId}: ${successCount} success, ${failureCount} failed`,
       );
 
-    this.logger.debug(
-      `FCM push for user ${userId}: ${successCount} success, ${failureCount} failed`,
-    );
-
-    // Deactivate stale / invalid tokens
-    if (failedTokens.length > 0) {
-      await this.prisma.deviceToken.updateMany({
-        where: { token: { in: failedTokens } },
-        data: { isActive: false },
-      });
+      if (failedTokens.length > 0) {
+        await this.prisma.deviceToken.updateMany({
+          where: { token: { in: failedTokens } },
+          data: { isActive: false },
+        });
+      }
     }
   }
 

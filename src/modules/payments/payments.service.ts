@@ -298,6 +298,21 @@ export class PaymentsService {
 
     const { depositId, status, failureReason, metadata } = payload;
 
+    // ── Wallet deposit (no Payment record — handled directly) ──────────────
+    const meta = metadata ?? {};
+    if (meta.purpose === 'wallet_deposit' && meta.technicianProfileId) {
+      if (status === 'COMPLETED' || status === 'FOUND') {
+        await this.creditTechnicianWallet(
+          meta.technicianProfileId,
+          Number(payload.amount ?? meta.amount ?? 0),
+          depositId,
+        );
+      } else {
+        this.logger.warn(`Wallet deposit ${depositId} failed: ${status}`);
+      }
+      return { received: true };
+    }
+
     // Find payment by deposit ID
     const payment = await this.prisma.payment.findFirst({
       where: { transactionId: depositId },
@@ -324,6 +339,41 @@ export class PaymentsService {
     }
 
     return { received: true };
+  }
+
+  /** Credit a technician's wallet — used by the PawaPay deposit webhook */
+  private async creditTechnicianWallet(
+    technicianProfileId: string,
+    amount: number,
+    depositId: string,
+  ) {
+    const profile = await this.prisma.technicianProfile.findUnique({
+      where: { id: technicianProfileId },
+      select: { id: true, walletBalance: true },
+    });
+    if (!profile) {
+      this.logger.warn(`TechnicianProfile ${technicianProfileId} not found for deposit ${depositId}`);
+      return;
+    }
+    const newBalance = profile.walletBalance + amount;
+    await this.prisma.$transaction([
+      this.prisma.technicianProfile.update({
+        where: { id: profile.id },
+        data: { walletBalance: newBalance },
+      }),
+      this.prisma.walletTransaction.create({
+        data: {
+          technicianProfileId: profile.id,
+          type: 'WALLET_DEPOSIT',
+          amount,
+          balanceAfter: newBalance,
+          description: 'Rechargement portefeuille',
+          referenceId: depositId,
+          referenceType: 'DEPOSIT',
+        },
+      }),
+    ]);
+    this.logger.log(`Wallet credited +${amount} XAF for tech ${technicianProfileId} (deposit ${depositId})`);
   }
 
   async handlePayPalWebhook(eventType: string, resource: any) {

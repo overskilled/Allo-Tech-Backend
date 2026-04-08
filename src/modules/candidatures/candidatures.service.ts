@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { MissionsService } from '../missions/missions.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   SubmitCandidatureDto,
   UpdateCandidatureDto,
@@ -25,6 +26,7 @@ export class CandidaturesService {
     private readonly prisma: PrismaService,
     private readonly missionsService: MissionsService,
     private readonly mailService: MailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ==========================================
@@ -131,16 +133,29 @@ export class CandidaturesService {
 
     // Notify client about new candidature
     if (candidature.need?.client?.id) {
-      const clientUser = await this.prisma.user.findUnique({ where: { id: candidature.need.client.id }, select: { email: true, firstName: true } });
+      const clientId = candidature.need.client.id;
+      const technicianName = `${technician.firstName} ${technician.lastName}`;
+      const clientUser = await this.prisma.user.findUnique({ where: { id: clientId }, select: { email: true, firstName: true } });
+
+      // Email
       if (clientUser?.email) {
         await this.mailService.sendNewCandidature(clientUser.email, {
           clientName: clientUser.firstName || 'Client',
-          technicianName: `${technician.firstName} ${technician.lastName}`,
+          technicianName,
           needTitle: candidature.need.title,
           message: dto.message,
           proposedPrice: dto.proposedPrice,
         });
       }
+
+      // Push + in-app notification
+      await this.notificationsService.notifyNewCandidature({
+        clientId,
+        technicianName,
+        needTitle: candidature.need.title,
+        needId: candidature.need.id,
+        candidatureId: candidature.id,
+      });
     }
 
     return candidature;
@@ -447,6 +462,14 @@ export class CandidaturesService {
         });
       }
     }
+
+    // Push + in-app notification to technician
+    await this.notificationsService.notifyCandidatureResponse({
+      technicianId: candidature.technicianId,
+      needTitle: updated.need.title,
+      accepted: newStatus === 'ACCEPTED',
+      needId: updated.need.id,
+    });
 
     return {
       candidature: updated,

@@ -129,10 +129,11 @@ enum PaymentProvider {
 }
 
 enum WalletTransactionType {
-  CANDIDATURE_FEE      // -500 XAF when submitting a quotation on a need
+  CANDIDATURE_FEE      // -500 XAF when submitting a candidature on a need
   MISSION_CREDIT       // + mission amount when client approves completion
   PAYOUT               // - withdrawal to mobile money
   REFUND               // + refund of candidature fee
+  WALLET_DEPOSIT       // + technician top-up via mobile money
   ADMIN_CREDIT         // + manual admin adjustment
   ADMIN_DEBIT          // - manual admin adjustment
 }
@@ -355,6 +356,7 @@ model TechnicianProfile {
   walletBalance     Float     @default(0)
   walletTransactions WalletTransaction[]
   payoutRequests    PayoutRequest[]
+  depositRequests   DepositRequest[]
 
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -478,6 +480,35 @@ model PayoutRequest {
 enum PayoutStatus {
   PENDING
   PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model DepositRequest {
+  id                  String              @id @default(uuid())
+  technicianProfileId String
+  technicianProfile   TechnicianProfile   @relation(fields: [technicianProfileId], references: [id], onDelete: Cascade)
+
+  amount              Float
+  currency            String              @default("XAF")
+  operator            String
+  phoneNumber         String
+
+  status              DepositStatus       @default(PENDING)
+  pawapayDepositId    String              @unique
+  completedAt         DateTime?
+  failureReason       String?
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([technicianProfileId])
+  @@index([status])
+  @@index([pawapayDepositId])
+}
+
+enum DepositStatus {
+  PENDING
   COMPLETED
   FAILED
 }
