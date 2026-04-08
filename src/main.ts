@@ -17,12 +17,8 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // Enable CORS first — must run before helmet
-  const corsOrigins = configService.get<string>('CORS_ORIGIN');
-  const originList = corsOrigins
-    ? corsOrigins.split(',').map((o) => o.trim()).filter(Boolean)
-    : [];
   app.enableCors({
-    origin: originList.length > 0 ? originList : false,
+    origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
