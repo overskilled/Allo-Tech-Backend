@@ -192,9 +192,15 @@ model User {
   emailVerifyToken  String?
   emailVerifyExpires DateTime?
 
-  // Password reset
+  // Password reset (legacy token — kept for web flow)
   passwordResetToken String?
   passwordResetExpires DateTime?
+
+  // Password reset via OTP (mobile flow)
+  passwordResetOtp         String?
+  passwordResetOtpExpires  DateTime?
+  passwordResetTempToken   String?
+  passwordResetTempExpires DateTime?
 
   // Timestamps
   createdAt         DateTime    @default(now())
@@ -1427,6 +1433,12 @@ model Mission {
   address         String?
   latitude        Float?
   longitude       Float?
+
+  // Payment (candidature-based missions)
+  proposedAmount  Decimal?      @db.Decimal(10, 2)
+  heldPaymentId   String?
+  heldAmount      Decimal?      @db.Decimal(10, 2)
+  clientPaidAt    DateTime?
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

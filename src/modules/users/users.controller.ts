@@ -213,6 +213,19 @@ export class UsersController {
     return this.usersService.findAllTechnicians(query);
   }
 
+  /**
+   * Unified directory: registered technicians (User accounts) PLUS
+   * agent-onboarded technicians who don't yet have an account.
+   * Registered appear first (sorted by rating), unregistered after.
+   */
+  @Public()
+  @Get('technicians/directory')
+  @ApiOperation({ summary: 'Full technician directory (registered + agent-onboarded)' })
+  @ApiResponse({ status: 200, description: 'Unified paginated technician list' })
+  async getTechnicianDirectory(@Query() query: QueryTechniciansDto) {
+    return this.usersService.findTechnicianDirectory(query);
+  }
+
   @Public()
   @Get('technicians/:id')
   @ApiOperation({ summary: 'Get technician profile by ID' })
@@ -220,6 +233,15 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Technician profile' })
   async getTechnicianProfile(@Param('id') id: string) {
     return this.usersService.getTechnicianProfile(id);
+  }
+
+  @Public()
+  @Get('technicians/:id/realizations')
+  @ApiOperation({ summary: 'Get public portfolio realizations for a technician' })
+  @ApiParam({ name: 'id', description: 'User ID of the technician' })
+  @ApiResponse({ status: 200, description: 'Realizations list' })
+  async getTechnicianRealizations(@Param('id') id: string) {
+    return this.usersService.getRealizations(id);
   }
 
   // ==========================================

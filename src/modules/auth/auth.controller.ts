@@ -25,6 +25,7 @@ import {
 import { LoginDto, GoogleAuthDto, RefreshTokenDto } from './dto/login.dto';
 import {
   ForgotPasswordDto,
+  VerifyResetOtpDto,
   ResetPasswordDto,
   ChangePasswordDto,
 } from './dto/password.dto';
@@ -90,11 +91,21 @@ export class AuthController {
   }
 
   @Public()
+  @Post('verify-reset-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify OTP and get temp token for password reset' })
+  @ApiResponse({ status: 200, description: 'OTP valid — returns tempToken' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  async verifyResetOtp(@Body() dto: VerifyResetOtpDto) {
+    return this.authService.verifyResetOtp(dto);
+  }
+
+  @Public()
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reset password with token' })
+  @ApiOperation({ summary: 'Reset password using temp token from OTP verification' })
   @ApiResponse({ status: 200, description: 'Password reset successful' })
-  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired temp token' })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }

@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, Matches } from 'class-validator';
+import { IsEmail, IsString, MinLength, Matches, Length } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ForgotPasswordDto {
@@ -7,18 +7,33 @@ export class ForgotPasswordDto {
   email: string;
 }
 
-export class ResetPasswordDto {
-  @ApiProperty()
+export class VerifyResetOtpDto {
+  @ApiProperty({ example: 'john@example.com' })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: '482951' })
   @IsString()
-  token: string;
+  @Length(6, 6, { message: 'Le code OTP doit contenir exactement 6 chiffres' })
+  otp: string;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty({ description: 'Temporary token returned by verify-reset-otp' })
+  @IsString()
+  tempToken: string;
 
   @ApiProperty({ example: 'NewSecurePass123!' })
   @IsString()
   @MinLength(8)
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+    message: 'Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre',
   })
   newPassword: string;
+
+  @ApiProperty({ example: 'NewSecurePass123!' })
+  @IsString()
+  confirmPassword: string;
 }
 
 export class ChangePasswordDto {
@@ -30,7 +45,7 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(8)
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+    message: 'Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre',
   })
   newPassword: string;
 }

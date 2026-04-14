@@ -45,6 +45,11 @@ export class QueryTechniciansDto extends PaginationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  search?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   specialty?: string;
 
   @ApiPropertyOptional()

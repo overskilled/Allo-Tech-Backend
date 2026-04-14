@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { MailService } from '../mail/mail.service';
+import { PawaPayService } from '../payments/providers/pawapay.service';
 import {
   ScheduleMissionDto,
   ValidateMissionDto,
@@ -28,6 +29,7 @@ export class MissionsService {
     private readonly prisma: PrismaService,
     private readonly messagingService: MessagingService,
     private readonly mailService: MailService,
+    private readonly pawaPayService: PawaPayService,
   ) {}
 
   // ==========================================
@@ -162,6 +164,7 @@ export class MissionsService {
         address: candidature.need.address,
         latitude: candidature.need.latitude,
         longitude: candidature.need.longitude,
+        proposedAmount: candidature.proposedPrice ?? null,
       },
       include: this.missionIncludes(),
     });
@@ -317,7 +320,7 @@ export class MissionsService {
       throw new ForbiddenException('Accès non autorisé à cette mission');
     }
 
-    return mission;
+    return this.parseMissionQuotation(mission);
   }
 
   async getClientMissions(clientId: string, query: QueryMissionsDto) {
@@ -404,6 +407,28 @@ export class MissionsService {
       throw new BadRequestException('La mission doit être planifiée ou en attente pour démarrer');
     }
 
+    // Enforce payment before mission start when a quotation is linked
+    if (mission.quotationId) {
+      const quotation = await this.prisma.quotation.findUnique({
+        where: { id: mission.quotationId },
+        select: { status: true },
+      });
+      if (!quotation || quotation.status !== 'PAID') {
+        throw new BadRequestException(
+          'Le devis associé doit être payé par le client avant de pouvoir démarrer cette mission',
+        );
+      }
+    }
+
+    // Enforce payment before mission start for candidature-based missions with a proposedAmount
+    if (!mission.quotationId && mission.proposedAmount && Number(mission.proposedAmount) > 0) {
+      if (!mission.clientPaidAt) {
+        throw new BadRequestException(
+          'Le client doit effectuer le paiement avant que vous puissiez démarrer cette mission',
+        );
+      }
+    }
+
     const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: {
@@ -447,13 +472,25 @@ export class MissionsService {
     // Notify client to validate the mission
     const client = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
     const tech = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
+    const techName = `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim();
+    const needTitle = updated.need?.title || 'Mission';
+
     if (client?.email) {
       await this.mailService.sendMissionValidationRequested(client.email, {
         clientName: client.firstName || 'Client',
-        technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
-        needTitle: updated.need?.title || 'Mission',
+        technicianName: techName,
+        needTitle,
       });
     }
+
+    // Push notification — ensures the client sees the prompt even if not checking email
+    await this.notificationsService.createNotification({
+      userId: mission.clientId,
+      type: 'MISSION',
+      title: 'Travaux terminés — validation requise',
+      body: `${techName} a terminé les travaux pour « ${needTitle} ». Ouvrez la mission pour confirmer.`,
+      data: { missionId, needTitle },
+    });
 
     return updated;
   }
@@ -522,17 +559,43 @@ export class MissionsService {
       include: this.missionIncludes(),
     });
 
-    // If mission is now completed, notify both parties
+    const needTitle = updated.need?.title || 'Mission';
+
     if (updated.status === 'COMPLETED') {
+      // Both parties validated — notify both with push + email
       const clientUser = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
       const techUser = await this.prisma.user.findUnique({ where: { id: mission.technicianId }, select: { email: true, firstName: true } });
-      const needTitle = updated.need?.title || 'Mission';
       if (clientUser?.email) {
         await this.mailService.sendMissionCompleted(clientUser.email, { name: clientUser.firstName || 'Client', needTitle });
       }
       if (techUser?.email) {
         await this.mailService.sendMissionCompleted(techUser.email, { name: techUser.firstName || 'Technicien', needTitle });
       }
+      await this.notificationsService.createNotification({
+        userId: mission.clientId,
+        type: 'MISSION',
+        title: 'Mission terminée ✅',
+        body: `La mission « ${needTitle} » est clôturée. Merci d'utiliser AlloTech !`,
+        data: { missionId },
+      });
+      await this.notificationsService.createNotification({
+        userId: mission.technicianId,
+        type: 'MISSION',
+        title: 'Mission terminée ✅',
+        body: `La mission « ${needTitle} » est clôturée avec succès.`,
+        data: { missionId },
+      });
+    } else {
+      // One party validated — notify the other party to do their part
+      const otherUserId = isClient ? mission.technicianId : mission.clientId;
+      const validatorLabel = isClient ? 'Le client' : 'Le technicien';
+      await this.notificationsService.createNotification({
+        userId: otherUserId,
+        type: 'MISSION',
+        title: 'Validation en attente',
+        body: `${validatorLabel} a validé la fin des travaux pour « ${needTitle} ». À votre tour de confirmer.`,
+        data: { missionId },
+      });
     }
 
     return updated;
@@ -739,6 +802,27 @@ export class MissionsService {
     return mission;
   }
 
+  /** Parse quotation.materials from JSON string → array (stored as string in DB) */
+  private parseMissionQuotation(mission: any) {
+    if (mission?.quotation?.materials && typeof mission.quotation.materials === 'string') {
+      try {
+        mission = {
+          ...mission,
+          quotation: {
+            ...mission.quotation,
+            materials: JSON.parse(mission.quotation.materials),
+          },
+        };
+      } catch {
+        mission = {
+          ...mission,
+          quotation: { ...mission.quotation, materials: [] },
+        };
+      }
+    }
+    return mission;
+  }
+
   private missionIncludes() {
     return {
       need: {
@@ -868,5 +952,168 @@ export class MissionsService {
       },
       ratings: true,
     } as const;
+  }
+
+  // ==========================================
+  // MISSION PAYMENT (candidature-based missions)
+  // ==========================================
+
+  async payMission(
+    missionId: string,
+    clientId: string,
+    dto: { phoneNumber: string; operator: string },
+  ) {
+    const mission = await this.prisma.mission.findUnique({
+      where: { id: missionId },
+      include: { need: { select: { id: true, title: true } } },
+    });
+
+    if (!mission) throw new NotFoundException('Mission introuvable');
+    if (mission.clientId !== clientId) throw new ForbiddenException('Non autorisé');
+
+    if (!mission.proposedAmount || Number(mission.proposedAmount) <= 0) {
+      throw new BadRequestException('Aucun montant de paiement défini pour cette mission');
+    }
+
+    if (mission.clientPaidAt) {
+      throw new BadRequestException('Cette mission a déjà été payée');
+    }
+
+    // If already AWAITING_PAYMENT, check the real PawaPay status
+    if (mission.heldPaymentId) {
+      const existingPayment = await this.prisma.payment.findUnique({
+        where: { id: mission.heldPaymentId },
+      });
+
+      if (existingPayment?.status === 'PENDING' && existingPayment.transactionId) {
+        try {
+          const depositStatus = await this.pawaPayService.getDepositStatus(
+            existingPayment.transactionId,
+          );
+
+          if (depositStatus.status === 'COMPLETED' || depositStatus.status === 'FOUND') {
+            await this.onMissionPaymentConfirmed(existingPayment.id);
+            return {
+              paymentId: existingPayment.id,
+              depositId: existingPayment.transactionId,
+              amount: Number(existingPayment.amount),
+              currency: existingPayment.currency,
+              status: 'COMPLETED',
+              message: 'Paiement confirmé. La mission peut démarrer.',
+            };
+          }
+
+          if (depositStatus.status === 'PROCESSING' || depositStatus.status === 'ACCEPTED') {
+            return {
+              paymentId: existingPayment.id,
+              depositId: existingPayment.transactionId,
+              amount: Number(existingPayment.amount),
+              currency: existingPayment.currency,
+              status: 'PENDING',
+              message: 'Paiement en cours de traitement. Patientez encore quelques secondes.',
+            };
+          }
+        } catch (_) {
+          // PawaPay unreachable — reset and allow retry
+        }
+      }
+
+      // Previous attempt failed — reset
+      await this.prisma.payment.updateMany({
+        where: { id: mission.heldPaymentId, status: 'PENDING' },
+        data: { status: 'FAILED', paymentDetails: JSON.stringify({ failureReason: 'RESTARTED_BY_CLIENT' }) },
+      });
+      await this.prisma.mission.update({
+        where: { id: missionId },
+        data: { heldPaymentId: null, heldAmount: null },
+      });
+    }
+
+    const amount = Number(mission.proposedAmount);
+    const currency = 'XAF';
+
+    const metadata: Record<string, string> = { missionId };
+    if (mission.need?.id) metadata.needId = mission.need.id;
+
+    const pawapayResult = await this.pawaPayService.initiateDeposit({
+      amount,
+      currency,
+      phoneNumber: dto.phoneNumber,
+      operator: dto.operator,
+      description: `Mission AlloTech`,
+      metadata,
+    });
+
+    const depositId = pawapayResult.depositId;
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        clientId,
+        technicianId: mission.technicianId,
+        amount,
+        currency,
+        paymentMethod: 'PAWAPAY',
+        transactionId: depositId,
+        status: 'PENDING',
+        paymentDetails: JSON.stringify({
+          purpose: 'mission_payment',
+          missionId,
+          needId: mission.need?.id,
+          operator: dto.operator,
+          phoneNumber: dto.phoneNumber,
+          pawapayDepositId: depositId,
+        }),
+      },
+    });
+
+    await this.prisma.mission.update({
+      where: { id: missionId },
+      data: {
+        heldPaymentId: payment.id,
+        heldAmount: amount,
+      },
+    });
+
+    return {
+      paymentId: payment.id,
+      depositId,
+      amount,
+      currency,
+      status: pawapayResult.status,
+      message: 'Paiement initié. Validez sur votre téléphone.',
+    };
+  }
+
+  /**
+   * Called by the PawaPay webhook when mission payment is confirmed.
+   * Marks the mission as paid so the technician can start.
+   */
+  async onMissionPaymentConfirmed(paymentId: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+    });
+    if (!payment) return;
+
+    const details = payment.paymentDetails ? JSON.parse(payment.paymentDetails as string) : {};
+    if (details.purpose !== 'mission_payment') return;
+
+    const { missionId } = details;
+
+    const mission = await this.prisma.mission.findUnique({
+      where: { id: missionId },
+      include: { need: { select: { title: true } } },
+    });
+    if (!mission) return;
+
+    // Update mission to mark as paid
+    await this.prisma.mission.update({
+      where: { id: missionId },
+      data: {
+        clientPaidAt: new Date(),
+        heldAmount: Number(payment.amount),
+      },
+    });
+
+    this.logger.log(`Mission payment confirmed: mission=${missionId}, payment=${paymentId}`);
   }
 }

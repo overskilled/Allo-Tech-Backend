@@ -7,6 +7,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { LicensesService } from '../licenses/licenses.service';
@@ -14,6 +15,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PawaPayService } from './providers/pawapay.service';
 import { PayPalService } from './providers/paypal.service';
 import { QuotationsService } from '../quotations/quotations.service';
+import { MissionsService } from '../missions/missions.service';
 import {
   InitiatePawaPayDto,
   InitiatePayPalDto,
@@ -28,6 +30,8 @@ import { LicensePlan } from '../licenses/dto/license.dto';
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
+  private isPollingFresh = false;
+  private isPollingStale = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -38,6 +42,8 @@ export class PaymentsService {
     private readonly paypalService: PayPalService,
     @Inject(forwardRef(() => QuotationsService))
     private readonly quotationsService: QuotationsService,
+    @Inject(forwardRef(() => MissionsService))
+    private readonly missionsService: MissionsService,
   ) {}
 
   // ==========================================
@@ -433,6 +439,10 @@ export class PaymentsService {
       await this.quotationsService.onQuotationPaymentConfirmed(paymentId);
     }
 
+    if (paymentDetails.purpose === PaymentPurpose.MISSION_PAYMENT) {
+      await this.missionsService.onMissionPaymentConfirmed(paymentId);
+    }
+
     if (paymentDetails.purpose === PaymentPurpose.LICENSE && payment.licenseId) {
       // Activate/renew license
       const endDate = new Date();
@@ -471,6 +481,130 @@ export class PaymentsService {
     }
 
     this.logger.log(`Payment completed: ${paymentId}`);
+  }
+
+  // ==========================================
+  // DEPOSIT POLLING (fallback when webhook fails)
+  // ==========================================
+
+  /**
+   * Polls recent PENDING PawaPay deposits (< 10 min old) every 30 seconds.
+   * Mobile money usually settles within 1–3 min — this catches fast confirmations
+   * that the webhook missed.
+   */
+  @Cron('*/30 * * * * *')
+  async pollFreshPendingDeposits() {
+    if (this.isPollingFresh) return;
+    this.isPollingFresh = true;
+    try {
+      const since = new Date(Date.now() - 10 * 60 * 1000); // 10 min ago
+      const until = new Date(Date.now() - 30 * 1000);      // ignore very recent (< 30s)
+      await this.pollPendingDeposits(since, until, 20, 'fresh');
+    } finally {
+      this.isPollingFresh = false;
+    }
+  }
+
+  /**
+   * Polls older PENDING PawaPay deposits (10 min – 2 h) every 3 minutes.
+   * Covers slow operators or delayed mobile confirmations.
+   */
+  @Cron('0 */3 * * * *')
+  async pollStalePendingDeposits() {
+    if (this.isPollingStale) return;
+    this.isPollingStale = true;
+    try {
+      const since = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 h ago
+      const until = new Date(Date.now() - 10 * 60 * 1000);     // already covered by fresh poll
+      await this.pollPendingDeposits(since, until, 30, 'stale');
+    } finally {
+      this.isPollingStale = false;
+    }
+  }
+
+  /**
+   * Expires PENDING PawaPay deposits older than 2 hours every 10 minutes.
+   * PawaPay deposits typically time out after ~2 h; we reflect that locally.
+   */
+  @Cron('0 */10 * * * *')
+  async expireStuckPendingDeposits() {
+    const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const stuck = await this.prisma.payment.findMany({
+      where: {
+        status: 'PENDING',
+        paymentMethod: 'PAWAPAY',
+        createdAt: { lt: cutoff },
+        transactionId: { not: null },
+      },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!stuck.length) return;
+    this.logger.warn(`Expiring ${stuck.length} stuck PENDING PawaPay deposit(s)`);
+
+    for (const p of stuck) {
+      await this.prisma.payment.update({
+        where: { id: p.id },
+        data: {
+          status: 'FAILED',
+          paymentDetails: JSON.stringify({ failureReason: 'DEPOSIT_EXPIRED' }),
+        },
+      }).catch(() => {/* ignore already-updated */});
+    }
+  }
+
+  /** Core polling loop — shared by fresh and stale jobs */
+  private async pollPendingDeposits(
+    createdAfter: Date,
+    createdBefore: Date,
+    limit: number,
+    label: string,
+  ) {
+    const pending = await this.prisma.payment.findMany({
+      where: {
+        status: 'PENDING',
+        paymentMethod: 'PAWAPAY',
+        createdAt: { gte: createdAfter, lt: createdBefore },
+        transactionId: { not: null },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      select: { id: true, transactionId: true },
+    });
+
+    if (!pending.length) return;
+    this.logger.debug(`[poll:${label}] Checking ${pending.length} pending deposit(s)`);
+
+    for (const payment of pending) {
+      try {
+        const depositStatus = await this.pawaPayService.getDepositStatus(
+          payment.transactionId!,
+        );
+        const { status } = depositStatus;
+
+        if (status === 'COMPLETED' || status === 'FOUND') {
+          this.logger.log(`[poll:${label}] Deposit ${payment.transactionId} COMPLETED — completing payment ${payment.id}`);
+          await this.completePayment(payment.id, { pawaPayStatus: status, resolvedBy: 'polling' });
+        } else if (status === 'FAILED') {
+          this.logger.warn(`[poll:${label}] Deposit ${payment.transactionId} FAILED`);
+          await this.prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: 'FAILED',
+              paymentDetails: JSON.stringify({
+                failureReason: depositStatus.failureReason?.failureMessage ?? 'FAILED',
+              }),
+            },
+          });
+        }
+        // ACCEPTED / PROCESSING / IN_RECONCILIATION → keep polling
+      } catch (err) {
+        this.logger.error(`[poll:${label}] Error checking deposit ${payment.transactionId}: ${(err as any).message}`);
+      }
+
+      // Small delay between PawaPay API calls to respect rate limits
+      await new Promise((r) => setTimeout(r, 300));
+    }
   }
 
   // ==========================================

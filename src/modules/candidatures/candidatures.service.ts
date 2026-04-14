@@ -158,6 +158,84 @@ export class CandidaturesService {
       });
     }
 
+    // ---- Auto-accept if proposed price is within client's budget ----
+    const withinBudget =
+      dto.proposedPrice != null &&
+      (need.budgetMax == null || dto.proposedPrice <= Number(need.budgetMax)) &&
+      (need.budgetMin == null || dto.proposedPrice >= Number(need.budgetMin));
+
+    if (withinBudget) {
+      // Reject all other pending candidatures for this need
+      await this.prisma.candidature.updateMany({
+        where: {
+          needId: dto.needId,
+          id: { not: candidature.id },
+          status: 'PENDING',
+        },
+        data: { status: 'REJECTED' },
+      });
+
+      // Accept this candidature and move need to IN_PROGRESS
+      await this.prisma.candidature.update({
+        where: { id: candidature.id },
+        data: { status: 'ACCEPTED' },
+      });
+      await this.prisma.need.update({
+        where: { id: dto.needId },
+        data: { status: 'IN_PROGRESS' },
+      });
+
+      candidature.status = 'ACCEPTED' as any;
+
+      // Auto-create mission
+      try {
+        const proposedDateStr = dto.proposedDate ?? (need.preferredDate ? need.preferredDate.toISOString() : undefined);
+        await this.missionsService.createMissionFromCandidature(candidature.id, {
+          proposedDate: proposedDateStr ?? new Date().toISOString(),
+          proposedTime: '00:00',
+        });
+        this.logger.log(`Auto-accepted candidature ${candidature.id} (within budget) and created mission`);
+      } catch (err) {
+        this.logger.error(`Failed to auto-create mission from auto-accepted candidature ${candidature.id}: ${err}`);
+      }
+
+      // Notify technician of auto-acceptance
+      const techUser = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { email: true } });
+      const clientUser2 = await this.prisma.user.findUnique({
+        where: { id: candidature.need.client.id },
+        select: { email: true, firstName: true, lastName: true },
+      });
+      const technicianName2 = `${technician.firstName} ${technician.lastName}`;
+
+      if (techUser?.email) {
+        await this.mailService.sendCandidatureAccepted(techUser.email, {
+          technicianName: technician.firstName,
+          needTitle: candidature.need.title,
+          clientName: `${clientUser2?.firstName ?? ''} ${clientUser2?.lastName ?? ''}`.trim(),
+          date: dto.proposedDate,
+          time: '00:00',
+        });
+      }
+
+      await this.notificationsService.notifyCandidatureResponse({
+        technicianId,
+        needTitle: candidature.need.title,
+        accepted: true,
+        needId: candidature.need.id,
+      });
+
+      // Notify client of auto-acceptance
+      if (clientUser2?.email) {
+        await this.mailService.sendNewCandidature(clientUser2.email, {
+          clientName: clientUser2.firstName || 'Client',
+          technicianName: technicianName2,
+          needTitle: candidature.need.title,
+          message: `Candidature automatiquement acceptée — prix proposé dans le budget.`,
+          proposedPrice: dto.proposedPrice,
+        });
+      }
+    }
+
     return candidature;
   }
 
@@ -231,6 +309,10 @@ export class CandidaturesService {
 
     if (query.status) {
       where.status = query.status;
+    }
+
+    if (query.needId) {
+      where.needId = query.needId;
     }
 
     const [candidatures, total] = await Promise.all([

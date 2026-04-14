@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import {
@@ -356,16 +357,132 @@ export class AgentsService {
       data: updateData,
       include: {
         fieldVisit: {
-          select: { id: true, scheduledAt: true, outcome: true },
+          select: {
+            id: true,
+            scheduledAt: true,
+            outcome: true,
+            // Used to pin the technician at the prospected company's location
+            address: true,
+            city: true,
+            neighborhood: true,
+            latitude: true,
+            longitude: true,
+          },
         },
       },
     });
 
-    return {
+    const result: any = {
       ...updated,
       specialties: updated.specialties ? JSON.parse(updated.specialties) : [],
       documents: updated.documents ? JSON.parse(updated.documents) : [],
     };
+
+    // Auto-create technician account when marked COMPLETED and no account exists yet
+    if (dto.status === 'COMPLETED' && !updated.technicianUserId) {
+      const accountResult = await this.createTechnicianAccountFromOnboarding(updated);
+      result.accountCreated = accountResult.created;
+      result.tempPassword = accountResult.tempPassword;
+      result.technicianUserId = accountResult.userId;
+    }
+
+    return result;
+  }
+
+  /** Generate a random alphanumeric password of the given length */
+  private generateTempPassword(length = 10): string {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  }
+
+  private dicebear(seed: string): string {
+    return `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
+  }
+
+  private async createTechnicianAccountFromOnboarding(onboarding: any): Promise<{
+    created: boolean;
+    userId?: string;
+    tempPassword?: string;
+  }> {
+    // Use provided email or generate a stable placeholder from onboarding id
+    const email =
+      onboarding.technicianEmail?.trim() ||
+      `tech.${onboarding.id.slice(0, 8)}@pending.allotechafrica.com`;
+
+    // Don't create if the email already belongs to an existing user
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      // Link the onboarding to the existing user if not linked yet
+      await this.prisma.technicianOnboarding.update({
+        where: { id: onboarding.id },
+        data: { technicianUserId: existing.id },
+      });
+      return { created: false, userId: existing.id };
+    }
+
+    const tempPassword = this.generateTempPassword(10);
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+    // Split name into first / last
+    const nameParts = (onboarding.technicianName || 'Technicien').trim().split(/\s+/);
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        firstName,
+        lastName,
+        phone: onboarding.technicianPhone,
+        role: 'TECHNICIAN',
+        status: 'ACTIVE',
+        emailVerified: true,
+        passwordHash,
+        profileImage: this.dicebear(onboarding.technicianPhone || onboarding.id),
+      },
+    });
+
+    // Prefer the field-visit coordinates (the prospected company's location) so the
+    // technician's pin appears at their workplace on the client map, not their home.
+    const visitLoc = onboarding.fieldVisit;
+    const profileLat = visitLoc?.latitude ?? null;
+    const profileLng = visitLoc?.longitude ?? null;
+    const profileAddress = visitLoc?.address || onboarding.address;
+    const profileCity = visitLoc?.city || onboarding.city;
+    const profileNeighborhood = visitLoc?.neighborhood || onboarding.neighborhood;
+
+    // TechnicianProfile
+    await this.prisma.technicianProfile.create({
+      data: {
+        userId: user.id,
+        profession: onboarding.profession,
+        specialties: onboarding.specialties, // already JSON string
+        yearsExperience: onboarding.yearsExperience ?? 0,
+        city: profileCity,
+        neighborhood: profileNeighborhood,
+        address: profileAddress,
+        latitude: profileLat,
+        longitude: profileLng,
+      },
+    });
+
+    // License (30-day trial)
+    await this.prisma.license.create({
+      data: {
+        userId: user.id,
+        status: 'TRIAL',
+        trialStartDate: new Date(),
+        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // Link back
+    await this.prisma.technicianOnboarding.update({
+      where: { id: onboarding.id },
+      data: { technicianUserId: user.id },
+    });
+
+    return { created: true, userId: user.id, tempPassword };
   }
 
   // ==========================================

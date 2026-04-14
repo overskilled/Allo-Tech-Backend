@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateNeedDto, UpdateNeedDto, AddNeedImageDto } from './dto/create-need.dto';
@@ -19,6 +20,8 @@ import { ProximityMatchingService } from './proximity-matching.service';
 
 @Injectable()
 export class NeedsService {
+  private readonly logger = new Logger(NeedsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly proximityMatchingService: ProximityMatchingService,
@@ -426,6 +429,32 @@ export class NeedsService {
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
+        missions: {
+          select: {
+            id: true,
+            status: true,
+            startedAt: true,
+            completedAt: true,
+            technicianValidatedAt: true,
+            clientValidatedAt: true,
+            quotationId: true,
+            quotation: {
+              select: { id: true, status: true, totalCost: true, currency: true },
+            },
+            technician: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                profileImage: true,
+                phone: true,
+                technicianProfile: { select: { profession: true, avgRating: true } },
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         _count: {
           select: { candidatures: true },
         },
@@ -444,15 +473,19 @@ export class NeedsService {
   // ==========================================
 
   async getClientNeeds(clientId: string, query: QueryClientNeedsDto) {
+    this.logger.debug(
+      `getClientNeeds — clientId=${clientId} status=${JSON.stringify(query.status)} (${typeof query.status}) includeArchived=${query.includeArchived} fullQuery=${JSON.stringify(query)}`,
+    );
+
     const where: any = { clientId };
 
     if (query.status) {
       where.status = query.status;
-    }
-
-    if (!query.includeArchived) {
+    } else if (!query.includeArchived) {
       where.status = { not: 'CANCELLED' };
     }
+
+    this.logger.debug(`getClientNeeds — prisma where=${JSON.stringify(where)}`);
 
     const [needs, total] = await Promise.all([
       this.prisma.need.findMany({
@@ -587,9 +620,9 @@ export class NeedsService {
       ];
     }
 
-    // Filter out needs where technician already applied
+    // Filter out needs where technician has a pending or accepted candidature
     const appliedNeedIds = await this.prisma.candidature.findMany({
-      where: { technicianId },
+      where: { technicianId, status: { in: ['PENDING', 'ACCEPTED'] } },
       select: { needId: true },
     });
 

@@ -6,12 +6,14 @@ import { PayPalService } from './providers/paypal.service';
 import { LicensesModule } from '../licenses/licenses.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { QuotationsModule } from '../quotations/quotations.module';
+import { MissionsModule } from '../missions/missions.module';
 
 @Module({
   imports: [
     LicensesModule,
     NotificationsModule,
     forwardRef(() => QuotationsModule),
+    forwardRef(() => MissionsModule),
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService, PawaPayService, PayPalService],

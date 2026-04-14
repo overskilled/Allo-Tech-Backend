@@ -20,6 +20,7 @@ export enum PaymentPurpose {
   SERVICE = 'service',
   NEED_DEPOSIT = 'need_deposit',
   QUOTATION_PAYMENT = 'quotation_payment',
+  MISSION_PAYMENT = 'mission_payment',
   WALLET_DEPOSIT = 'wallet_deposit',
 }
 

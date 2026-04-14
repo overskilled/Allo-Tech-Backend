@@ -89,19 +89,21 @@ export class MessagingService {
         const otherUserId = participants.find((p) => p !== userId);
 
         const [otherUser, lastMessage, unreadCount] = await Promise.all([
-          this.prisma.user.findUnique({
-            where: { id: otherUserId },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              profileImage: true,
-              role: true,
-              technicianProfile: {
-                select: { profession: true, isVerified: true },
-              },
-            },
-          }),
+          otherUserId
+            ? this.prisma.user.findUnique({
+                where: { id: otherUserId },
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  profileImage: true,
+                  role: true,
+                  technicianProfile: {
+                    select: { profession: true, isVerified: true },
+                  },
+                },
+              })
+            : Promise.resolve(null),
           this.prisma.message.findFirst({
             where: { conversationId: conv.id },
             orderBy: { createdAt: 'desc' },
@@ -139,10 +141,10 @@ export class MessagingService {
       }),
     );
 
-    // Filter unread only if requested
-    let filtered = conversationsWithDetails;
+    // Filter out conversations where the other participant no longer exists
+    let filtered = conversationsWithDetails.filter((c) => c.participant !== null);
     if (query.unreadOnly) {
-      filtered = conversationsWithDetails.filter((c) => c.unreadCount > 0);
+      filtered = filtered.filter((c) => c.unreadCount > 0);
     }
 
     // Apply pagination
@@ -177,6 +179,7 @@ export class MessagingService {
           lastName: true,
           profileImage: true,
           phone: true,
+          email: true,
           role: true,
           technicianProfile: {
             select: { profession: true, isVerified: true, avgRating: true },

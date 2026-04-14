@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsEnum,
   IsBoolean,
+  IsIn,
   Min,
   Max,
 } from 'class-validator';
@@ -100,7 +101,7 @@ export class QueryNeedsDto extends PaginationDto {
 export class QueryClientNeedsDto extends PaginationDto {
   @ApiPropertyOptional({ enum: NeedStatus, description: 'Filter by status' })
   @IsOptional()
-  @IsEnum(NeedStatus)
+  @IsIn(Object.values(NeedStatus))
   status?: NeedStatus;
 
   @ApiPropertyOptional({ description: 'Include archived needs' })

@@ -247,6 +247,17 @@ export class QuotationsController {
     return this.quotationsService.payQuotation(id, userId, dto);
   }
 
+  @Post(':id/pay-cash')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Client confirms cash payment — marks quotation as PAID immediately' })
+  @ApiParam({ name: 'id', description: 'Quotation ID' })
+  async payQuotationCash(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.quotationsService.confirmCashPayment(id, userId);
+  }
+
   @Post(':id/approve-completion')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Client approves work completion — releases funds to technician wallet' })

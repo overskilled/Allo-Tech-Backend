@@ -676,6 +676,166 @@ export class UsersService {
     );
   }
 
+  /**
+   * Unified directory of ALL technicians — those with a registered account
+   * (TechnicianProfile) AND those onboarded by agents who have no account yet
+   * (TechnicianOnboarding where technicianUserId IS NULL).
+   *
+   * Registered entries appear first (sorted by rating DESC), followed by
+   * unregistered onboarding entries. Pagination spans both sources correctly.
+   */
+  async findTechnicianDirectory(query: QueryTechniciansDto) {
+    const { skip, take } = query;
+    const search = query.search?.trim();
+    const city = query.city?.trim();
+
+    // ── 1. Build WHERE for registered technicians ──────────────────────────
+    const regWhere: any = {
+      user: { role: 'TECHNICIAN', status: { not: 'SUSPENDED' } },
+    };
+    if (city) regWhere.city = { contains: city, mode: 'insensitive' };
+    if (query.isVerified !== undefined) regWhere.isVerified = query.isVerified;
+    if (query.isAvailable !== undefined) regWhere.isAvailable = query.isAvailable;
+    if (query.minRating) regWhere.avgRating = { gte: query.minRating };
+    if (query.specialty) regWhere.specialties = { contains: query.specialty };
+    if (search) {
+      regWhere.OR = [
+        { profession: { contains: search, mode: 'insensitive' } },
+        { specialties: { contains: search, mode: 'insensitive' } },
+        { city: { contains: search, mode: 'insensitive' } },
+        { user: { firstName: { contains: search, mode: 'insensitive' } } },
+        { user: { lastName: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    // ── 2. Build WHERE for unregistered onboardings ────────────────────────
+    const unregWhere: any = {
+      technicianUserId: null,
+      status: { not: 'REJECTED' },
+    };
+    if (city) unregWhere.city = { contains: city, mode: 'insensitive' };
+    // availability / rating / verified filters don't apply to raw onboardings
+    if (search) {
+      unregWhere.OR = [
+        { technicianName: { contains: search, mode: 'insensitive' } },
+        { profession: { contains: search, mode: 'insensitive' } },
+        { specialties: { contains: search, mode: 'insensitive' } },
+        { city: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (query.specialty) unregWhere.specialties = { contains: query.specialty };
+
+    // ── 3. Counts ──────────────────────────────────────────────────────────
+    const [regCount, unregCount] = await Promise.all([
+      this.prisma.technicianProfile.count({ where: regWhere }),
+      this.prisma.technicianOnboarding.count({ where: unregWhere }),
+    ]);
+    const total = regCount + unregCount;
+
+    // ── 4. Cross-source pagination (registered first) ──────────────────────
+    const regSkip = Math.min(skip, regCount);
+    const regTake = Math.max(0, Math.min(take, regCount - regSkip));
+    const unregSkip = Math.max(0, skip - regCount);
+    const unregTake = take - regTake;
+
+    // ── 5. Fetch registered ────────────────────────────────────────────────
+    const registered = regTake > 0
+      ? await this.prisma.technicianProfile.findMany({
+          where: regWhere,
+          skip: regSkip,
+          take: regTake,
+          orderBy: { avgRating: 'desc' },
+          include: {
+            user: {
+              select: {
+                id: true, firstName: true, lastName: true,
+                profileImage: true, phone: true, email: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    // ── 6. Fetch unregistered ──────────────────────────────────────────────
+    const unregistered = unregTake > 0
+      ? await this.prisma.technicianOnboarding.findMany({
+          where: unregWhere,
+          skip: unregSkip,
+          take: unregTake,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            fieldVisit: {
+              select: { address: true, city: true, neighborhood: true, latitude: true, longitude: true },
+            },
+          },
+        })
+      : [];
+
+    // ── 7. Map to unified shape ────────────────────────────────────────────
+    const dicebear = (seed: string) =>
+      `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
+
+    const mappedRegistered = registered.map((t) => ({
+      id: t.user.id,
+      firstName: t.user.firstName,
+      lastName: t.user.lastName,
+      profileImage: t.user.profileImage ?? dicebear(t.user.email || t.user.id),
+      phone: t.user.phone,
+      profession: t.profession,
+      specialties: this.parseJsonField(t.specialties),
+      city: t.city,
+      neighborhood: t.neighborhood,
+      address: t.address,
+      latitude: t.latitude,
+      longitude: t.longitude,
+      isAvailable: t.isAvailable,
+      isVerified: t.isVerified,
+      rating: t.avgRating,
+      totalRatings: t.totalRatings,
+      completedJobs: t.completedJobs,
+      yearsExperience: t.yearsExperience,
+      registered: true,
+    }));
+
+    const mappedUnregistered = unregistered.map((ob) => {
+      const nameParts = (ob.technicianName || '').trim().split(/\s+/);
+      const fv = ob.fieldVisit;
+      return {
+        id: ob.id,                    // onboarding ID (no user account yet)
+        firstName: nameParts[0] || ob.technicianName,
+        lastName: nameParts.slice(1).join(' ') || '',
+        profileImage: dicebear(ob.technicianPhone || ob.id),
+        phone: ob.technicianPhone,
+        profession: ob.profession,
+        specialties: this.parseJsonField(ob.specialties),
+        city: fv?.city || ob.city,
+        neighborhood: fv?.neighborhood || ob.neighborhood,
+        address: fv?.address || ob.address,
+        latitude: fv?.latitude ?? null,
+        longitude: fv?.longitude ?? null,
+        isAvailable: true,
+        isVerified: false,
+        rating: 0,
+        totalRatings: 0,
+        completedJobs: 0,
+        yearsExperience: ob.yearsExperience ?? 0,
+        registered: false,
+      };
+    });
+
+    const data = [...mappedRegistered, ...mappedUnregistered];
+
+    return {
+      data,
+      total,
+      page: query.page || 1,
+      limit: take,
+      totalPages: Math.ceil(total / take),
+      hasNextPage: (query.page || 1) < Math.ceil(total / take),
+      hasPreviousPage: (query.page || 1) > 1,
+    };
+  }
+
   // ==========================================
   // ADMIN OPERATIONS
   // ==========================================

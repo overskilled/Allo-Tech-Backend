@@ -26,6 +26,7 @@ import { ManagerModule } from './modules/manager/manager.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { TrackingModule } from './modules/tracking/tracking.module';
 import { LocationModule } from './modules/location/location.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { WalletModule } from './modules/wallet/wallet.module';
@@ -65,6 +66,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     ManagerModule,
     AgentsModule,
     ReportingModule,
+    TrackingModule,
   ],
   controllers: [],
   providers: [

@@ -382,7 +382,9 @@ export class AppointmentsService {
       const mission = await this.missionsService.createMissionFromAppointment(appointmentId);
       this.logger.log(`Mission ${mission.id} auto-created and started from appointment ${appointmentId}`);
     } catch (err) {
-      // Log full error details — do NOT swallow silently
+      // Re-throw payment/validation errors so the client receives a proper 400
+      if (err instanceof BadRequestException) throw err;
+      // Log unexpected errors (e.g., DB failures) without surfacing to client
       this.logger.error(`Failed to auto-create mission for appointment ${appointmentId}`, err instanceof Error ? err.stack : String(err));
     }
 
@@ -557,7 +559,8 @@ export class AppointmentsService {
   }
 
   async getTechnicianAppointments(technicianId: string, query: QueryAppointmentsDto) {
-    const where: any = { technicianId };
+    // Exclude appointments that already have a linked mission — the mission card represents that work
+    const where: any = { technicianId, mission: null };
 
     if (query.status) {
       where.status = query.status;

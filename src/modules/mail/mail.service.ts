@@ -74,6 +74,22 @@ const TEMPLATES = {
     `),
   }),
 
+  PASSWORD_RESET_OTP: (data: { name: string; otp: string }) => ({
+    subject: 'Code de vérification - AlloTech',
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.name},</h2>
+      <p style="color: #374151;">Vous avez demandé la réinitialisation de votre mot de passe. Utilisez le code ci-dessous dans l'application.</p>
+      <div style="text-align:center; margin: 28px 0;">
+        <div style="display:inline-block; background:#f0f7ff; border: 2px solid #167bda; border-radius: 12px; padding: 20px 36px;">
+          <span style="font-size: 40px; font-weight: 700; letter-spacing: 12px; color: #167bda; font-family: monospace;">${data.otp}</span>
+        </div>
+      </div>
+      <p style="color: #374151; text-align:center;">Ce code expire dans <strong>10 minutes</strong>.</p>
+      <p style="color: #6b7280; font-size: 13px; text-align:center;">Ne partagez ce code avec personne. AlloTech ne vous demandera jamais votre code.</p>
+      <p style="color: #6b7280; font-size: 13px; text-align:center;">Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>
+    `),
+  }),
+
   WELCOME: (data: { name: string; role: string }) => ({
     subject: 'Bienvenue sur AlloTech !',
     html: wrap('#167bda', `
@@ -372,6 +388,69 @@ const TEMPLATES = {
       `)}
     `),
   }),
+
+  // ── Invoice ──────────────────────────────────
+  INVOICE: (data: {
+    recipientName: string;
+    role: 'client' | 'technician';
+    invoiceNumber: string;
+    needTitle: string;
+    clientName: string;
+    technicianName: string;
+    laborCost: string;
+    materialsCost: string;
+    totalAmount: string;
+    currency: string;
+    paymentDate: string;
+    operator: string;
+    phoneNumber: string;
+  }) => ({
+    subject: `Facture #${data.invoiceNumber} — ${data.needTitle} - AlloTech`,
+    html: wrap('#167bda', `
+      <h2 style="color: #111827;">Bonjour ${data.recipientName},</h2>
+      <p style="color: #374151;">
+        ${data.role === 'client'
+          ? `Votre paiement a été confirmé avec succès. Voici votre facture pour la prestation <strong>${data.needTitle}</strong>.`
+          : `Le paiement du client pour la prestation <strong>${data.needTitle}</strong> a été reçu. Les fonds ont été crédités sur votre portefeuille.`
+        }
+      </p>
+
+      <div style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; overflow: hidden; margin: 20px 0;">
+        <div style="background: #f3f4f6; padding: 14px 20px; border-bottom: 1px solid #e5e7eb;">
+          <p style="margin: 0; font-size: 13px; color: #6b7280;">N° Facture</p>
+          <p style="margin: 4px 0 0; font-size: 16px; font-weight: 700; color: #111827;">#${data.invoiceNumber}</p>
+        </div>
+        <div style="padding: 20px;">
+          ${row('Prestation', data.needTitle)}
+          ${row('Client', data.clientName)}
+          ${row('Technicien', data.technicianName)}
+          ${row('Date de paiement', data.paymentDate)}
+          ${row('Opérateur', data.operator)}
+          ${row('N° téléphone', data.phoneNumber)}
+        </div>
+        <div style="padding: 0 20px 4px; border-top: 1px solid #f3f4f6;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #374151; margin-top: 12px;">
+            <tr>
+              <td style="padding: 6px 0;">Main d'œuvre</td>
+              <td style="padding: 6px 0; text-align: right;">${data.laborCost} ${data.currency}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0;">Matériaux</td>
+              <td style="padding: 6px 0; text-align: right;">${data.materialsCost} ${data.currency}</td>
+            </tr>
+            <tr style="border-top: 2px solid #e5e7eb;">
+              <td style="padding: 10px 0 6px; font-weight: 700; font-size: 15px; color: #111827;">Total</td>
+              <td style="padding: 10px 0 6px; text-align: right; font-weight: 700; font-size: 15px; color: #167bda;">${data.totalAmount} ${data.currency}</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">
+        Conservez cet email comme preuve de paiement. Pour toute question, contactez notre support.
+      </p>
+    `),
+  }),
 };
 
 // ==========================================
@@ -441,6 +520,11 @@ export class MailService {
   async sendPasswordReset(to: string, name: string, token: string) {
     const resetUrl = `${this.frontendUrl}/reinitialiser-mot-de-passe?token=${token}`;
     const template = TEMPLATES.PASSWORD_RESET({ name, resetUrl });
+    return this.send({ to, ...template });
+  }
+
+  async sendPasswordResetOtp(to: string, name: string, otp: string) {
+    const template = TEMPLATES.PASSWORD_RESET_OTP({ name, otp });
     return this.send({ to, ...template });
   }
 
@@ -561,6 +645,25 @@ export class MailService {
 
   async sendPaymentReceived(to: string, data: { name: string; amount: string; currency: string; transactionId: string; date: string }) {
     const template = TEMPLATES.PAYMENT_RECEIVED(data);
+    return this.send({ to, ...template });
+  }
+
+  async sendInvoice(to: string, data: {
+    recipientName: string;
+    role: 'client' | 'technician';
+    invoiceNumber: string;
+    needTitle: string;
+    clientName: string;
+    technicianName: string;
+    laborCost: string;
+    materialsCost: string;
+    totalAmount: string;
+    currency: string;
+    paymentDate: string;
+    operator: string;
+    phoneNumber: string;
+  }) {
+    const template = TEMPLATES.INVOICE(data);
     return this.send({ to, ...template });
   }
 

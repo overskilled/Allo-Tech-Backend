@@ -143,6 +143,19 @@ export class MissionsController {
     return this.missionsService.validateMission(id, userId, dto);
   }
 
+  @Post(':id/pay')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Client pays candidature-based mission via PawaPay' })
+  @ApiParam({ name: 'id', description: 'Mission ID' })
+  @ApiResponse({ status: 200, description: 'Payment initiated' })
+  async payMission(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: { phoneNumber: string; operator: string },
+  ) {
+    return this.missionsService.payMission(id, userId, dto);
+  }
+
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel a mission' })

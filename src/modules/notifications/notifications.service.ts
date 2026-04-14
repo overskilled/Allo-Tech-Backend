@@ -21,68 +21,68 @@ import { NotificationType } from '@prisma/client';
 const NOTIFICATION_TEMPLATES = {
   // Appointment notifications
   APPOINTMENT_CREATED: {
-    title: 'New Appointment',
-    body: (data: any) => `You have a new appointment scheduled for ${data.date}`,
+    title: 'Nouveau rendez-vous',
+    body: (data: any) => `Un rendez-vous a été planifié pour le ${data.date}`,
   },
   APPOINTMENT_CONFIRMED: {
-    title: 'Appointment Confirmed',
-    body: (data: any) => `Your appointment on ${data.date} has been confirmed`,
+    title: 'Rendez-vous confirmé',
+    body: (data: any) => `Votre rendez-vous du ${data.date} est confirmé`,
   },
   APPOINTMENT_CANCELLED: {
-    title: 'Appointment Cancelled',
-    body: (data: any) => `Your appointment on ${data.date} has been cancelled`,
+    title: 'Rendez-vous annulé',
+    body: (data: any) => `Votre rendez-vous du ${data.date} a été annulé`,
   },
   APPOINTMENT_REMINDER: {
-    title: 'Appointment Reminder',
-    body: (data: any) => `Reminder: You have an appointment ${data.timeUntil}`,
+    title: 'Rappel de rendez-vous',
+    body: (data: any) => `Rappel : vous avez un rendez-vous ${data.timeUntil}`,
   },
   TECHNICIAN_STARTED: {
-    title: 'Technician En Route',
-    body: (data: any) => `${data.technicianName} is on the way to your location`,
+    title: 'Technicien en route',
+    body: (data: any) => `${data.technicianName} est en route vers votre adresse`,
   },
   TECHNICIAN_ARRIVED: {
-    title: 'Technician Arrived',
-    body: (data: any) => `${data.technicianName} has arrived at your location`,
+    title: 'Technicien arrivé',
+    body: (data: any) => `${data.technicianName} est arrivé à votre adresse`,
   },
 
   // Candidature notifications
   NEW_CANDIDATURE: {
-    title: 'New Application',
-    body: (data: any) => `${data.technicianName} has applied to your request "${data.needTitle}"`,
+    title: 'Nouvelle candidature reçue',
+    body: (data: any) => `${data.technicianName} a postulé à votre demande « ${data.needTitle} »`,
   },
   CANDIDATURE_ACCEPTED: {
-    title: 'Application Accepted',
-    body: (data: any) => `Your application for "${data.needTitle}" has been accepted`,
+    title: 'Candidature acceptée 🎉',
+    body: (data: any) => `Votre candidature pour « ${data.needTitle} » a été acceptée par le client`,
   },
   CANDIDATURE_REJECTED: {
-    title: 'Application Update',
-    body: (data: any) => `Your application for "${data.needTitle}" was not selected`,
+    title: 'Candidature non retenue',
+    body: (data: any) => `Votre candidature pour « ${data.needTitle} » n'a pas été retenue cette fois`,
   },
 
   // Quotation notifications
   NEW_QUOTATION: {
-    title: 'New Quotation',
-    body: (data: any) => `You received a quotation for "${data.needTitle}"`,
+    title: 'Nouveau devis reçu',
+    body: (data: any) => `Vous avez reçu un devis pour votre demande « ${data.needTitle} »`,
   },
   QUOTATION_ACCEPTED: {
-    title: 'Quotation Accepted',
-    body: (data: any) => `Your quotation for "${data.needTitle}" has been accepted`,
+    title: 'Devis accepté 🎉',
+    body: (data: any) => `Votre devis pour « ${data.needTitle} » a été accepté par le client`,
   },
   QUOTATION_REJECTED: {
-    title: 'Quotation Update',
-    body: (data: any) => `Your quotation for "${data.needTitle}" was not accepted`,
+    title: 'Devis non retenu',
+    body: (data: any) => `Votre devis pour « ${data.needTitle} » n'a pas été retenu`,
   },
 
   // Message notifications
   NEW_MESSAGE: {
-    title: 'New Message',
-    body: (data: any) => `${data.senderName}: ${data.preview}`,
+    title: 'Nouveau message',
+    body: (data: any) => `${data.senderName} : ${data.preview}`,
   },
 
   // Rating notifications
   NEW_RATING: {
-    title: 'New Rating',
-    body: (data: any) => `${data.clientName} rated your service ${data.score}/5`,
+    title: 'Nouvelle évaluation',
+    body: (data: any) => `${data.clientName} a évalué votre intervention ${data.score}/5`,
   },
 
   // Payment notifications

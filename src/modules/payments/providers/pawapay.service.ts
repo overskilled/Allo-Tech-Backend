@@ -143,7 +143,8 @@ export class PawaPayService {
   private readonly isEnabled: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    const sandbox = this.configService.get<string>('PAWAPAY_SANDBOX', 'true') === 'true';
+    const rawSandbox = this.configService.get<string>('PAWAPAY_SANDBOX', 'true');
+    const sandbox = rawSandbox.trim().toLowerCase() !== 'false';
     this.baseUrl = sandbox
       ? 'https://api.sandbox.pawapay.io/v2'
       : 'https://api.pawapay.io/v2';
@@ -152,7 +153,9 @@ export class PawaPayService {
     this.isEnabled = !!this.apiToken;
 
     if (this.isEnabled) {
-      this.logger.log(`PawaPay service initialized (${sandbox ? 'sandbox' : 'production'})`);
+      this.logger.log(
+        `PawaPay service initialized — mode: ${sandbox ? 'SANDBOX' : 'PRODUCTION'} — url: ${this.baseUrl}`,
+      );
     } else {
       this.logger.warn('PawaPay service disabled - PAWAPAY_API_TOKEN not configured');
     }
@@ -205,24 +208,30 @@ export class PawaPayService {
       }));
     }
 
+    const url = `${this.baseUrl}/deposits`;
+    this.logger.log(`[deposit:initiate] → POST ${url}`);
+    this.logger.log(`[deposit:initiate] payload: ${JSON.stringify(request, null, 2)}`);
+
     try {
-      const response = await fetch(`${this.baseUrl}/deposits`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(request),
       });
 
+      const rawBody = await response.text();
+      this.logger.log(`[deposit:initiate] HTTP ${response.status} response: ${rawBody}`);
+
       if (!response.ok) {
-        const error = await response.text();
-        this.logger.error(`PawaPay deposit failed: ${error}`);
+        this.logger.error(`[deposit:initiate] FAILED — HTTP ${response.status}: ${rawBody}`);
         throw new BadRequestException(
-          `Payment initiation failed: ${this.parseErrorMessage(error)}`
+          `Payment initiation failed: ${this.parseErrorMessage(rawBody)}`
         );
       }
 
-      const result = (await response.json()) as PawaPayDepositResponse;
+      const result = JSON.parse(rawBody) as PawaPayDepositResponse;
 
-      this.logger.log(`PawaPay deposit initiated: ${depositId} - Status: ${result.status}`);
+      this.logger.log(`[deposit:initiate] depositId=${depositId} status=${result.status}${result.failureReason ? ` reason=${result.failureReason.failureCode}: ${result.failureReason.failureMessage}` : ''}`);
 
       if (result.status === 'REJECTED') {
         throw new BadRequestException(
@@ -233,7 +242,7 @@ export class PawaPayService {
       return { ...result, depositId };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
-      this.logger.error(`PawaPay deposit error: ${(error as any).message}`, (error as any).stack);
+      this.logger.error(`[deposit:initiate] exception: ${(error as any).message}`, (error as any).stack);
       throw new BadRequestException('Failed to process payment');
     }
   }
@@ -243,26 +252,31 @@ export class PawaPayService {
       throw new BadRequestException('PawaPay is not configured');
     }
 
+    const url = `${this.baseUrl}/deposits/${depositId}`;
+    this.logger.log(`[deposit:status] → GET ${url}`);
+
     try {
-      const response = await fetch(`${this.baseUrl}/deposits/${depositId}`, {
+      const response = await fetch(url, {
         method: 'GET',
         headers: this.getHeaders(),
       });
 
+      const rawBody = await response.text();
+      this.logger.log(`[deposit:status] HTTP ${response.status} for depositId=${depositId}: ${rawBody}`);
+
       if (!response.ok) {
-        const error = await response.text();
-        this.logger.error(`PawaPay deposit status failed [${depositId}]: ${error}`);
+        this.logger.error(`[deposit:status] FAILED — HTTP ${response.status}: ${rawBody}`);
         throw new BadRequestException(`Failed to get deposit status: ${response.statusText}`);
       }
 
-      const result = (await response.json()) as PawaPayDepositStatus;
+      const result = JSON.parse(rawBody) as PawaPayDepositStatus;
       this.logger.log(
-        `PawaPay deposit status [${depositId}]: ${result.status}${result.failureReason ? ` - ${result.failureReason.failureCode}: ${result.failureReason.failureMessage}` : ''}`
+        `[deposit:status] depositId=${depositId} status=${result.status}${result.failureReason ? ` reason=${result.failureReason.failureCode}: ${result.failureReason.failureMessage}` : ''}`
       );
       return result;
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
-      this.logger.error(`PawaPay status check error [${depositId}]: ${(error as any).message}`);
+      this.logger.error(`[deposit:status] exception for ${depositId}: ${(error as any).message}`);
       throw new BadRequestException('Failed to check payment status');
     }
   }

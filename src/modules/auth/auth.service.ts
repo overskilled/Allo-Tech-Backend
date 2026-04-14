@@ -13,7 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { RegisterDto, CompleteProfileClientDto, CompleteProfileTechnicianDto } from './dto/register.dto';
 import { LoginDto, GoogleAuthDto } from './dto/login.dto';
-import { ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto } from './dto/password.dto';
+import { ForgotPasswordDto, VerifyResetOtpDto, ResetPasswordDto, ChangePasswordDto } from './dto/password.dto';
 import { UserRole, UserStatus } from '@prisma/client';
 
 @Injectable()
@@ -416,40 +416,88 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
 
-    if (!user) {
-      // Don't reveal if email exists
-      return { message: 'If the email exists, a reset link has been sent' };
-    }
+    // Always return the same message to avoid email enumeration
+    const genericMsg = 'Si ce compte existe, un code de vérification a été envoyé';
 
-    const resetToken = uuidv4();
+    if (!user) return { message: genericMsg };
+
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otp, 10);
 
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        passwordResetToken: resetToken,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+        passwordResetOtp: otpHash,
+        passwordResetOtpExpires: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        // Clear any previous temp token
+        passwordResetTempToken: null,
+        passwordResetTempExpires: null,
       },
     });
 
-    await this.mailService.sendPasswordReset(user.email, user.firstName || 'Utilisateur', resetToken);
+    await this.mailService.sendPasswordResetOtp(
+      user.email,
+      user.firstName || 'Utilisateur',
+      otp,
+    );
 
-    return { message: 'If the email exists, a reset link has been sent' };
+    return { message: genericMsg };
+  }
+
+  async verifyResetOtp(dto: VerifyResetOtpDto) {
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+
+    const invalid = () => new BadRequestException('Code invalide ou expiré');
+
+    if (!user || !user.passwordResetOtp || !user.passwordResetOtpExpires) {
+      throw invalid();
+    }
+
+    if (new Date() > user.passwordResetOtpExpires) {
+      // Clean up expired OTP
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordResetOtp: null, passwordResetOtpExpires: null },
+      });
+      throw new BadRequestException('Code expiré. Veuillez en demander un nouveau.');
+    }
+
+    const isValid = await bcrypt.compare(dto.otp, user.passwordResetOtp);
+    if (!isValid) throw invalid();
+
+    // OTP is correct — issue a short-lived temp token
+    const tempToken = uuidv4();
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetOtp: null,
+        passwordResetOtpExpires: null,
+        passwordResetTempToken: tempToken,
+        passwordResetTempExpires: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+      },
+    });
+
+    return { tempToken };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('Les mots de passe ne correspondent pas');
+    }
+
     const user = await this.prisma.user.findFirst({
       where: {
-        passwordResetToken: dto.token,
-        passwordResetExpires: { gt: new Date() },
+        passwordResetTempToken: dto.tempToken,
+        passwordResetTempExpires: { gt: new Date() },
       },
     });
 
     if (!user) {
-      throw new BadRequestException('Invalid or expired reset token');
+      throw new BadRequestException('Session expirée. Veuillez recommencer la réinitialisation.');
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
@@ -458,8 +506,8 @@ export class AuthService {
       where: { id: user.id },
       data: {
         passwordHash,
-        passwordResetToken: null,
-        passwordResetExpires: null,
+        passwordResetTempToken: null,
+        passwordResetTempExpires: null,
       },
     });
 
@@ -469,7 +517,7 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    return { message: 'Password reset successful' };
+    return { message: 'Mot de passe réinitialisé avec succès' };
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
