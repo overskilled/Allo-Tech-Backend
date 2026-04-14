@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { MailService } from '../mail/mail.service';
 import { PawaPayService } from '../payments/providers/pawapay.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   ScheduleMissionDto,
   ValidateMissionDto,
@@ -30,6 +31,7 @@ export class MissionsService {
     private readonly messagingService: MessagingService,
     private readonly mailService: MailService,
     private readonly pawaPayService: PawaPayService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ==========================================
