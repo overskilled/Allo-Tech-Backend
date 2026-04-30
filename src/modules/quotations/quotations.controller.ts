@@ -249,7 +249,7 @@ export class QuotationsController {
 
   @Post(':id/pay-cash')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Client confirms cash payment — marks quotation as PAID immediately' })
+  @ApiOperation({ summary: 'Client confirms cash payment marks quotation as PAID immediately' })
   @ApiParam({ name: 'id', description: 'Quotation ID' })
   async payQuotationCash(
     @Param('id') id: string,
@@ -260,7 +260,7 @@ export class QuotationsController {
 
   @Post(':id/approve-completion')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Client approves work completion — releases funds to technician wallet' })
+  @ApiOperation({ summary: 'Client approves work completion releases funds to technician wallet' })
   @ApiParam({ name: 'id', description: 'Quotation ID' })
   async approveCompletion(
     @Param('id') id: string,

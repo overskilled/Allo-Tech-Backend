@@ -474,7 +474,7 @@ export class NeedsService {
 
   async getClientNeeds(clientId: string, query: QueryClientNeedsDto) {
     this.logger.debug(
-      `getClientNeeds — clientId=${clientId} status=${JSON.stringify(query.status)} (${typeof query.status}) includeArchived=${query.includeArchived} fullQuery=${JSON.stringify(query)}`,
+      `getClientNeeds clientId=${clientId} status=${JSON.stringify(query.status)} (${typeof query.status}) includeArchived=${query.includeArchived} fullQuery=${JSON.stringify(query)}`,
     );
 
     const where: any = { clientId };
@@ -485,7 +485,7 @@ export class NeedsService {
       where.status = { not: 'CANCELLED' };
     }
 
-    this.logger.debug(`getClientNeeds — prisma where=${JSON.stringify(where)}`);
+    this.logger.debug(`getClientNeeds prisma where=${JSON.stringify(where)}`);
 
     const [needs, total] = await Promise.all([
       this.prisma.need.findMany({

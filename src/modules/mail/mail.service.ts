@@ -289,7 +289,7 @@ const TEMPLATES = {
   }),
 
   MISSION_VALIDATION_REQUESTED: (data: { clientName: string; technicianName: string; needTitle: string }) => ({
-    subject: 'Validation requise — Mission terminée - AlloTech',
+    subject: 'Validation requise Mission terminée - AlloTech',
     html: wrap('#fab829', `
       <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
       <p style="color: #374151;"><strong>${data.technicianName}</strong> a terminé la mission <strong>"${data.needTitle}"</strong> et demande votre validation.</p>
@@ -405,7 +405,7 @@ const TEMPLATES = {
     operator: string;
     phoneNumber: string;
   }) => ({
-    subject: `Facture #${data.invoiceNumber} — ${data.needTitle} - AlloTech`,
+    subject: `Facture #${data.invoiceNumber} ${data.needTitle} - AlloTech`,
     html: wrap('#167bda', `
       <h2 style="color: #111827;">Bonjour ${data.recipientName},</h2>
       <p style="color: #374151;">

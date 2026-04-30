@@ -468,7 +468,7 @@ export class AuthService {
     const isValid = await bcrypt.compare(dto.otp, user.passwordResetOtp);
     if (!isValid) throw invalid();
 
-    // OTP is correct — issue a short-lived temp token
+    // OTP is correct issue a short-lived temp token
     const tempToken = uuidv4();
 
     await this.prisma.user.update({

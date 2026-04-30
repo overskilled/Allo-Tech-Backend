@@ -28,7 +28,7 @@ export class TrackingGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private readonly logger = new Logger(TrackingGateway.name);
   private userSockets: Map<string, Set<string>> = new Map();
-  /** Last known GPS position per missionId — in-memory cache (cleared on restart). */
+  /** Last known GPS position per missionId in-memory cache (cleared on restart). */
   private missionLocations: Map<string, { lat: number; lng: number; updatedAt: Date }> = new Map();
 
   constructor(
@@ -49,7 +49,7 @@ export class TrackingGateway implements OnGatewayConnection, OnGatewayDisconnect
         client.handshake.headers.authorization?.replace('Bearer ', '');
 
       if (!token) {
-        this.logger.warn(`Tracking: socket ${client.id} rejected — no token provided`);
+        this.logger.warn(`Tracking: socket ${client.id} rejected no token provided`);
         client.disconnect();
         return;
       }
@@ -68,7 +68,7 @@ export class TrackingGateway implements OnGatewayConnection, OnGatewayDisconnect
       client.join(`user:${client.userId}`);
       this.logger.log(`Tracking: user ${client.userId} connected (socket: ${client.id})`);
     } catch (err: any) {
-      this.logger.warn(`Tracking: socket ${client.id} rejected — JWT error: ${err?.message ?? err}`);
+      this.logger.warn(`Tracking: socket ${client.id} rejected JWT error: ${err?.message ?? err}`);
       client.disconnect();
     }
   }

@@ -93,7 +93,7 @@ export class CompleteProfileClientDto {
   @Max(180)
   longitude?: number;
 
-  @ApiPropertyOptional({ description: 'URL of profile avatar (e.g. DiceBear)' })
+  @ApiPropertyOptional({ description: 'URL of uploaded profile avatar' })
   @IsOptional()
   @IsString()
   profileImage?: string;
@@ -149,7 +149,7 @@ export class CompleteProfileTechnicianDto {
   @Max(180)
   longitude?: number;
 
-  @ApiPropertyOptional({ description: 'URL of profile avatar (e.g. DiceBear)' })
+  @ApiPropertyOptional({ description: 'URL of uploaded profile avatar' })
   @IsOptional()
   @IsString()
   profileImage?: string;

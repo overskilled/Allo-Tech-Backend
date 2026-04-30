@@ -160,7 +160,7 @@ export class AppointmentsService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
         const field = (error.meta as Record<string, unknown>)?.field_name || 'unknown';
         this.logger.error(
-          `FK constraint failed creating appointment — clientId: ${clientId}, technicianId: ${dto.technicianId}, needId: ${dto.needId}, field: ${field}`,
+          `FK constraint failed creating appointment clientId: ${clientId}, technicianId: ${dto.technicianId}, needId: ${dto.needId}, field: ${field}`,
         );
         throw new BadRequestException(
           `Cannot create appointment: referenced record not found (${field}). Ensure the need, technician, and your account exist.`,
@@ -377,7 +377,7 @@ export class AppointmentsService {
         }
       }
 
-      // No existing mission found — create one from the appointment
+      // No existing mission found create one from the appointment
       this.logger.log(`Creating mission from appointment ${appointmentId} (needId=${appointment.needId}, techId=${technicianId}, clientId=${appointment.clientId})`);
       const mission = await this.missionsService.createMissionFromAppointment(appointmentId);
       this.logger.log(`Mission ${mission.id} auto-created and started from appointment ${appointmentId}`);
@@ -559,7 +559,7 @@ export class AppointmentsService {
   }
 
   async getTechnicianAppointments(technicianId: string, query: QueryAppointmentsDto) {
-    // Exclude appointments that already have a linked mission — the mission card represents that work
+    // Exclude appointments that already have a linked mission the mission card represents that work
     const where: any = { technicianId, mission: null };
 
     if (query.status) {

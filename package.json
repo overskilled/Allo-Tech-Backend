@@ -25,6 +25,7 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:review": "ts-node prisma/seed-review.ts",
     "prisma:reset": "prisma migrate reset"
   },
   "dependencies": {

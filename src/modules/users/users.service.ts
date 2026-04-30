@@ -677,7 +677,7 @@ export class UsersService {
   }
 
   /**
-   * Unified directory of ALL technicians — those with a registered account
+   * Unified directory of ALL technicians those with a registered account
    * (TechnicianProfile) AND those onboarded by agents who have no account yet
    * (TechnicianOnboarding where technicianUserId IS NULL).
    *
@@ -772,14 +772,11 @@ export class UsersService {
       : [];
 
     // ── 7. Map to unified shape ────────────────────────────────────────────
-    const dicebear = (seed: string) =>
-      `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
-
     const mappedRegistered = registered.map((t) => ({
       id: t.user.id,
       firstName: t.user.firstName,
       lastName: t.user.lastName,
-      profileImage: t.user.profileImage ?? dicebear(t.user.email || t.user.id),
+      profileImage: t.user.profileImage ?? null,
       phone: t.user.phone,
       profession: t.profession,
       specialties: this.parseJsonField(t.specialties),
@@ -804,7 +801,7 @@ export class UsersService {
         id: ob.id,                    // onboarding ID (no user account yet)
         firstName: nameParts[0] || ob.technicianName,
         lastName: nameParts.slice(1).join(' ') || '',
-        profileImage: dicebear(ob.technicianPhone || ob.id),
+        profileImage: null,
         phone: ob.technicianPhone,
         profession: ob.profession,
         specialties: this.parseJsonField(ob.specialties),

@@ -94,7 +94,7 @@ export class AuthController {
   @Post('verify-reset-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify OTP and get temp token for password reset' })
-  @ApiResponse({ status: 200, description: 'OTP valid — returns tempToken' })
+  @ApiResponse({ status: 200, description: 'OTP valid returns tempToken' })
   @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
   async verifyResetOtp(@Body() dto: VerifyResetOtpDto) {
     return this.authService.verifyResetOtp(dto);

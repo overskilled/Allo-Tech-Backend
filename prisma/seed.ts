@@ -107,9 +107,6 @@ async function main() {
   // ===========================================
   console.log('👥 Seeding users...');
 
-  const dicebear = (seed: string) =>
-    `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
-
   const passwordHash = await bcrypt.hash('password123', SALT_ROUNDS);
 
   // Admin
@@ -142,10 +139,10 @@ async function main() {
     },
   });
 
-  // Agent — Gabriella Momha
+  // Agent Gabriella Momha
   await prisma.user.upsert({
     where: { email: 'gabriella.momha@allotech.cm' },
-    update: { profileImage: dicebear('gabriella.momha@allotech.cm') },
+    update: { profileImage: null },
     create: {
       email: 'gabriella.momha@allotech.cm',
       passwordHash: passwordHash,
@@ -154,7 +151,7 @@ async function main() {
       role: UserRole.AGENT,
       status: UserStatus.ACTIVE,
       emailVerified: true,
-      profileImage: dicebear('gabriella.momha@allotech.cm'),
+      profileImage: null,
     },
   });
 
@@ -162,7 +159,7 @@ async function main() {
   const randomAround = (center: number, range: number) =>
     center + (Math.random() - 0.5) * 2 * range;
 
-  // Store client location data for creating ClientProfiles — all around Douala
+  // Store client location data for creating ClientProfiles all around Douala
   const clientLocations = [
     {
       address: '12 Rue de la Liberté, Bonamoussadi',
@@ -205,7 +202,7 @@ async function main() {
   const clients = await Promise.all([
     prisma.user.upsert({
       where: { email: 'client1@demo.com' },
-      update: { profileImage: dicebear('client1@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'client1@demo.com',
         passwordHash: passwordHash,
@@ -215,12 +212,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('client1@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'client2@demo.com' },
-      update: { profileImage: dicebear('client2@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'client2@demo.com',
         passwordHash: passwordHash,
@@ -230,12 +227,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('client2@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'client3@demo.com' },
-      update: { profileImage: dicebear('client3@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'client3@demo.com',
         passwordHash: passwordHash,
@@ -245,12 +242,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('client3@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'client4@demo.com' },
-      update: { profileImage: dicebear('client4@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'client4@demo.com',
         passwordHash: passwordHash,
@@ -260,12 +257,12 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('client4@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'client5@demo.com' },
-      update: { profileImage: dicebear('client5@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'client5@demo.com',
         passwordHash: passwordHash,
@@ -275,7 +272,7 @@ async function main() {
         role: UserRole.CLIENT,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('client5@demo.com'),
+        profileImage: null,
       },
     }),
   ]);
@@ -303,7 +300,7 @@ async function main() {
     });
   }
 
-  // Store technician location data — all around Douala
+  // Store technician location data all around Douala
   const technicianLocations = [
     {
       address: '10 Rue Manga Bell, Bali',
@@ -346,7 +343,7 @@ async function main() {
   const technicians = await Promise.all([
     prisma.user.upsert({
       where: { email: 'electricien@demo.com' },
-      update: { profileImage: dicebear('electricien@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'electricien@demo.com',
         passwordHash: await bcrypt.hash('Tech@123', SALT_ROUNDS),
@@ -356,12 +353,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('electricien@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'plombier@demo.com' },
-      update: { profileImage: dicebear('plombier@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'plombier@demo.com',
         passwordHash: await bcrypt.hash('Tech@123', SALT_ROUNDS),
@@ -371,12 +368,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('plombier@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'peintre@demo.com' },
-      update: { profileImage: dicebear('peintre@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'peintre@demo.com',
         passwordHash: await bcrypt.hash('Tech@123', SALT_ROUNDS),
@@ -386,12 +383,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('peintre@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'menuisier@demo.com' },
-      update: { profileImage: dicebear('menuisier@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'menuisier@demo.com',
         passwordHash: passwordHash,
@@ -401,12 +398,12 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('menuisier@demo.com'),
+        profileImage: null,
       },
     }),
     prisma.user.upsert({
       where: { email: 'climaticien@demo.com' },
-      update: { profileImage: dicebear('climaticien@demo.com') },
+      update: { profileImage: null },
       create: {
         email: 'climaticien@demo.com',
         passwordHash: passwordHash,
@@ -416,7 +413,7 @@ async function main() {
         role: UserRole.TECHNICIAN,
         status: UserStatus.ACTIVE,
         emailVerified: true,
-        profileImage: dicebear('climaticien@demo.com'),
+        profileImage: null,
       },
     }),
   ]);

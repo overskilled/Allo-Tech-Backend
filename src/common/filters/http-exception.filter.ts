@@ -56,7 +56,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         case 'P2003': {
           const fieldName = (exception.meta as Record<string, unknown>)?.field_name || 'unknown';
           message = `Foreign key constraint failed on field: ${fieldName}`;
-          this.logger.error(`P2003 FK constraint — field: ${fieldName}, meta: ${JSON.stringify(exception.meta)}`);
+          this.logger.error(`P2003 FK constraint field: ${fieldName}, meta: ${JSON.stringify(exception.meta)}`);
           break;
         }
         case 'P2025':

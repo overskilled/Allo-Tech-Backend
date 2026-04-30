@@ -154,7 +154,7 @@ export class PawaPayService {
 
     if (this.isEnabled) {
       this.logger.log(
-        `PawaPay service initialized — mode: ${sandbox ? 'SANDBOX' : 'PRODUCTION'} — url: ${this.baseUrl}`,
+        `PawaPay service initialized mode: ${sandbox ? 'SANDBOX' : 'PRODUCTION'} url: ${this.baseUrl}`,
       );
     } else {
       this.logger.warn('PawaPay service disabled - PAWAPAY_API_TOKEN not configured');
@@ -223,7 +223,7 @@ export class PawaPayService {
       this.logger.log(`[deposit:initiate] HTTP ${response.status} response: ${rawBody}`);
 
       if (!response.ok) {
-        this.logger.error(`[deposit:initiate] FAILED — HTTP ${response.status}: ${rawBody}`);
+        this.logger.error(`[deposit:initiate] FAILED HTTP ${response.status}: ${rawBody}`);
         throw new BadRequestException(
           `Payment initiation failed: ${this.parseErrorMessage(rawBody)}`
         );
@@ -265,7 +265,7 @@ export class PawaPayService {
       this.logger.log(`[deposit:status] HTTP ${response.status} for depositId=${depositId}: ${rawBody}`);
 
       if (!response.ok) {
-        this.logger.error(`[deposit:status] FAILED — HTTP ${response.status}: ${rawBody}`);
+        this.logger.error(`[deposit:status] FAILED HTTP ${response.status}: ${rawBody}`);
         throw new BadRequestException(`Failed to get deposit status: ${response.statusText}`);
       }
 

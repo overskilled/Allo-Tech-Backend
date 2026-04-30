@@ -30,6 +30,7 @@ import { TrackingModule } from './modules/tracking/tracking.module';
 import { LocationModule } from './modules/location/location.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { TechniciansModule } from './modules/technicians/technicians.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
 @Module({
@@ -67,6 +68,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     AgentsModule,
     ReportingModule,
     TrackingModule,
+    TechniciansModule,
   ],
   controllers: [],
   providers: [

@@ -81,7 +81,7 @@ export class QuotationsService {
       throw new BadRequestException('You already have a quotation for this need');
     }
 
-    // Calculate costs — enrich each material with computed totalPrice
+    // Calculate costs enrich each material with computed totalPrice
     const enrichedMaterials = dto.materials.map((m) => ({
       ...m,
       totalPrice: m.quantity * m.unitPrice,
@@ -813,7 +813,7 @@ export class QuotationsService {
             existingPayment.transactionId,
           );
 
-          // Already completed on PawaPay side — trigger confirmation now
+          // Already completed on PawaPay side trigger confirmation now
           if (depositStatus.status === 'COMPLETED' || depositStatus.status === 'FOUND') {
             await this.onQuotationPaymentConfirmed(existingPayment.id);
             return {
@@ -826,7 +826,7 @@ export class QuotationsService {
             };
           }
 
-          // Still genuinely processing — tell the client to wait
+          // Still genuinely processing tell the client to wait
           if (depositStatus.status === 'PROCESSING' || depositStatus.status === 'ACCEPTED') {
             return {
               paymentId: existingPayment.id,
@@ -840,11 +840,11 @@ export class QuotationsService {
 
           // FAILED or unknown → fall through to reset + new payment
         } catch (_) {
-          // PawaPay unreachable — still reset so user can retry
+          // PawaPay unreachable still reset so user can retry
         }
       }
 
-      // Previous payment failed or unreachable — reset and allow a fresh attempt
+      // Previous payment failed or unreachable reset and allow a fresh attempt
       await this.prisma.payment.updateMany({
         where: { id: quotation.heldPaymentId, status: 'PENDING' },
         data: { status: 'FAILED', paymentDetails: JSON.stringify({ failureReason: 'RESTARTED_BY_CLIENT' }) },
@@ -963,7 +963,7 @@ export class QuotationsService {
             type: 'MISSION_CREDIT',
             amount,
             balanceAfter: newBalance,
-            description: `Paiement devis — « ${quotation.need.title} »`,
+            description: `Paiement devis « ${quotation.need.title} »`,
             referenceId: quotationId,
             referenceType: 'QUOTATION',
           },
@@ -1023,7 +1023,7 @@ export class QuotationsService {
       });
     }
 
-    // Notify technician — funds credited
+    // Notify technician funds credited
     await this.notificationsService.createNotification({
       userId: quotation.technicianId,
       type: 'PAYMENT',
@@ -1032,7 +1032,7 @@ export class QuotationsService {
       data: { quotationId, needId: quotation.need.id, invoiceNumber },
     });
 
-    // Notify client — payment confirmed
+    // Notify client payment confirmed
     await this.notificationsService.createNotification({
       userId: quotation.need.clientId,
       type: 'PAYMENT',
@@ -1045,7 +1045,7 @@ export class QuotationsService {
   }
 
   /**
-   * Client pays with cash — marks quotation as PAID immediately and creates a CASH Payment record.
+   * Client pays with cash marks quotation as PAID immediately and creates a CASH Payment record.
    * Cash payments do NOT credit the technician wallet (funds are collected directly on-site).
    * They are tracked as platform-generated revenue only.
    */
@@ -1068,7 +1068,7 @@ export class QuotationsService {
     const amount = Number(quotation.totalCost ?? 0);
     const invoiceNumber = `INV-${quotationId.slice(0, 8).toUpperCase()}-${Date.now().toString().slice(-6)}`;
 
-    // Create CASH payment record (revenue tracking only — no wallet credit)
+    // Create CASH payment record (revenue tracking only no wallet credit)
     const payment = await this.prisma.payment.create({
       data: {
         clientId,
@@ -1092,7 +1092,7 @@ export class QuotationsService {
       data: { status: 'PAID', heldPaymentId: payment.id, heldAmount: amount },
     });
 
-    // Notify technician — cash collected on-site, no wallet credit
+    // Notify technician cash collected on-site, no wallet credit
     await this.notificationsService.createNotification({
       userId: quotation.technicianId,
       type: 'PAYMENT',
@@ -1133,7 +1133,7 @@ export class QuotationsService {
     const techProfile = quotation.technician.technicianProfile;
     if (!techProfile) throw new BadRequestException('Profil technicien introuvable');
 
-    // Funds already credited at payment time — just complete the mission
+    // Funds already credited at payment time just complete the mission
     const releaseAmount = Number(quotation.heldAmount ?? quotation.totalCost);
     const newBalance = techProfile.walletBalance; // no additional credit
 
@@ -1162,7 +1162,7 @@ export class QuotationsService {
         : []),
     ]);
 
-    // Notify technician — client validated work
+    // Notify technician client validated work
     await this.notificationsService.createNotification({
       userId: quotation.technicianId,
       type: 'MISSION',

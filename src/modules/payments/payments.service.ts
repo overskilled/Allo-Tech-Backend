@@ -304,7 +304,7 @@ export class PaymentsService {
 
     const { depositId, status, failureReason, metadata } = payload;
 
-    // ── Wallet deposit (no Payment record — handled directly) ──────────────
+    // ── Wallet deposit (no Payment record handled directly) ──────────────
     const meta = metadata ?? {};
     if (meta.purpose === 'wallet_deposit' && meta.technicianProfileId) {
       if (status === 'COMPLETED' || status === 'FOUND') {
@@ -347,7 +347,7 @@ export class PaymentsService {
     return { received: true };
   }
 
-  /** Credit a technician's wallet — used by the PawaPay deposit webhook */
+  /** Credit a technician's wallet used by the PawaPay deposit webhook */
   private async creditTechnicianWallet(
     technicianProfileId: string,
     amount: number,
@@ -489,7 +489,7 @@ export class PaymentsService {
 
   /**
    * Polls recent PENDING PawaPay deposits (< 10 min old) every 30 seconds.
-   * Mobile money usually settles within 1–3 min — this catches fast confirmations
+   * Mobile money usually settles within 1–3 min this catches fast confirmations
    * that the webhook missed.
    */
   @Cron('*/30 * * * * *')
@@ -553,7 +553,7 @@ export class PaymentsService {
     }
   }
 
-  /** Core polling loop — shared by fresh and stale jobs */
+  /** Core polling loop shared by fresh and stale jobs */
   private async pollPendingDeposits(
     createdAfter: Date,
     createdBefore: Date,
@@ -583,7 +583,7 @@ export class PaymentsService {
         const { status } = depositStatus;
 
         if (status === 'COMPLETED' || status === 'FOUND') {
-          this.logger.log(`[poll:${label}] Deposit ${payment.transactionId} COMPLETED — completing payment ${payment.id}`);
+          this.logger.log(`[poll:${label}] Deposit ${payment.transactionId} COMPLETED completing payment ${payment.id}`);
           await this.completePayment(payment.id, { pawaPayStatus: status, resolvedBy: 'polling' });
         } else if (status === 'FAILED') {
           this.logger.warn(`[poll:${label}] Deposit ${payment.transactionId} FAILED`);

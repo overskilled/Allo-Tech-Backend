@@ -160,7 +160,7 @@ export class CounterProposalsService {
         data: updateData,
       });
     } else {
-      // Rejected — return quotation to SENT status
+      // Rejected return quotation to SENT status
       await this.prisma.quotation.update({
         where: { id: quotation.id },
         data: { status: 'SENT' },

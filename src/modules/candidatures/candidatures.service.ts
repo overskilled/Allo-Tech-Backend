@@ -230,7 +230,7 @@ export class CandidaturesService {
           clientName: clientUser2.firstName || 'Client',
           technicianName: technicianName2,
           needTitle: candidature.need.title,
-          message: `Candidature automatiquement acceptée — prix proposé dans le budget.`,
+          message: `Candidature automatiquement acceptée prix proposé dans le budget.`,
           proposedPrice: dto.proposedPrice,
         });
       }

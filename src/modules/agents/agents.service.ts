@@ -395,10 +395,6 @@ export class AgentsService {
     return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
   }
 
-  private dicebear(seed: string): string {
-    return `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
-  }
-
   private async createTechnicianAccountFromOnboarding(onboarding: any): Promise<{
     created: boolean;
     userId?: string;
@@ -438,7 +434,7 @@ export class AgentsService {
         status: 'ACTIVE',
         emailVerified: true,
         passwordHash,
-        profileImage: this.dicebear(onboarding.technicianPhone || onboarding.id),
+        profileImage: null,
       },
     });
 
@@ -782,7 +778,7 @@ export class AgentsService {
       });
     }
 
-    // Top categories from onboarded technicians — normalize to merge duplicates
+    // Top categories from onboarded technicians normalize to merge duplicates
     const rawCategories = await this.prisma.technicianOnboarding.groupBy({
       by: ['profession'],
       _count: { id: true },
@@ -966,9 +962,6 @@ export class AgentsService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new BadRequestException('Un compte avec cet email existe déjà');
 
-    const dicebear = (seed: string) =>
-      `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=128`;
-
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -978,7 +971,7 @@ export class AgentsService {
         role: 'CLIENT',
         status: 'TRIAL',
         emailVerified: true,
-        profileImage: dicebear(dto.email),
+        profileImage: null,
         createdByAgentId: agentId,
       },
     });

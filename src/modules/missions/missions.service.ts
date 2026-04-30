@@ -119,7 +119,7 @@ export class MissionsService {
   }
 
   // ==========================================
-  // MISSION CREATION (from accepted candidature — direct flow)
+  // MISSION CREATION (from accepted candidature direct flow)
   // ==========================================
 
   async createMissionFromCandidature(
@@ -485,11 +485,11 @@ export class MissionsService {
       });
     }
 
-    // Push notification — ensures the client sees the prompt even if not checking email
+    // Push notification ensures the client sees the prompt even if not checking email
     await this.notificationsService.createNotification({
       userId: mission.clientId,
       type: 'MISSION',
-      title: 'Travaux terminés — validation requise',
+      title: 'Travaux terminés validation requise',
       body: `${techName} a terminé les travaux pour « ${needTitle} ». Ouvrez la mission pour confirmer.`,
       data: { missionId, needTitle },
     });
@@ -564,7 +564,7 @@ export class MissionsService {
     const needTitle = updated.need?.title || 'Mission';
 
     if (updated.status === 'COMPLETED') {
-      // Both parties validated — notify both with push + email
+      // Both parties validated notify both with push + email
       const clientUser = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
       const techUser = await this.prisma.user.findUnique({ where: { id: mission.technicianId }, select: { email: true, firstName: true } });
       if (clientUser?.email) {
@@ -588,7 +588,7 @@ export class MissionsService {
         data: { missionId },
       });
     } else {
-      // One party validated — notify the other party to do their part
+      // One party validated notify the other party to do their part
       const otherUserId = isClient ? mission.technicianId : mission.clientId;
       const validatorLabel = isClient ? 'Le client' : 'Le technicien';
       await this.notificationsService.createNotification({
@@ -1016,11 +1016,11 @@ export class MissionsService {
             };
           }
         } catch (_) {
-          // PawaPay unreachable — reset and allow retry
+          // PawaPay unreachable reset and allow retry
         }
       }
 
-      // Previous attempt failed — reset
+      // Previous attempt failed reset
       await this.prisma.payment.updateMany({
         where: { id: mission.heldPaymentId, status: 'PENDING' },
         data: { status: 'FAILED', paymentDetails: JSON.stringify({ failureReason: 'RESTARTED_BY_CLIENT' }) },

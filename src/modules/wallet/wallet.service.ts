@@ -9,7 +9,7 @@ import { PawaPayService } from '../payments/providers/pawapay.service';
 import { createPaginatedResult, PaginationDto } from '../../common/dto/pagination.dto';
 
 const MIN_PAYOUT = 1000;    // XAF
-const MIN_DEPOSIT = 500;    // XAF — minimum wallet top-up
+const MIN_DEPOSIT = 500;    // XAF minimum wallet top-up
 
 @Injectable()
 export class WalletService {
@@ -125,7 +125,7 @@ export class WalletService {
       this.logger.log(`PawaPay payout initiated: ${pawapayPayoutId}`);
     } catch (err) {
       this.logger.error(`PawaPay payout failed: ${(err as Error).message}`);
-      // Still create the request — admin can process manually
+      // Still create the request admin can process manually
     }
 
     const newBalance = profile.walletBalance - dto.amount;
