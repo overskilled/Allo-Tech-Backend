@@ -278,8 +278,14 @@ export class KycService {
     if (query.status) {
       where.status = query.status as KycStatus;
     } else {
+      // Default queue surfaces every submission that needs admin attention,
+      // including those waiting for the technician to fix something.
       where.status = {
-        in: [KycStatus.SUBMITTED, KycStatus.UNDER_REVIEW],
+        in: [
+          KycStatus.SUBMITTED,
+          KycStatus.UNDER_REVIEW,
+          KycStatus.RESUBMISSION_REQUIRED,
+        ],
       };
     }
 
@@ -305,6 +311,121 @@ export class KycService {
     ]);
 
     return createPaginatedResult(items, total, query);
+  }
+
+  /**
+   * Unified technician listing for the admin KYC view.
+   *
+   * `verified` filter:
+   *   - 'unverified' (default) → technicians with isVerified=false
+   *   - 'verified'             → technicians with isVerified=true
+   *   - 'all'                  → every technician
+   */
+  async getPendingTechnicians(
+    query: QueryKycQueueDto & { verified?: 'all' | 'verified' | 'unverified' },
+  ) {
+    const verified = query.verified ?? 'unverified';
+    const where: Prisma.UserWhereInput = { role: 'TECHNICIAN' };
+
+    if (verified === 'unverified') {
+      where.technicianProfile = { isVerified: false };
+    } else if (verified === 'verified') {
+      where.technicianProfile = { isVerified: true };
+    } else {
+      where.technicianProfile = { isNot: null };
+    }
+
+    if (query.search) {
+      where.OR = [
+        { firstName: { contains: query.search, mode: 'insensitive' } },
+        { lastName: { contains: query.search, mode: 'insensitive' } },
+        { email: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip: query.skip,
+        take: query.take,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          profileImage: true,
+          createdAt: true,
+          technicianProfile: {
+            select: { profession: true, city: true, isVerified: true },
+          },
+          kycSubmission: {
+            select: { id: true, status: true, submittedAt: true },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return createPaginatedResult(users, total, query);
+  }
+
+  /**
+   * Send a reminder (email + in-app notification) to a technician asking them
+   * to start or finish their KYC verification.
+   */
+  async remindTechnician(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        role: true,
+        technicianProfile: { select: { isVerified: true } },
+      },
+    });
+
+    if (!user) throw new NotFoundException('Technician not found');
+    if (user.role !== 'TECHNICIAN') {
+      throw new BadRequestException('User is not a technician');
+    }
+    if (user.technicianProfile?.isVerified) {
+      throw new BadRequestException('Technician is already verified');
+    }
+
+    await this.notificationsService.create({
+      userId: user.id,
+      type: 'SYSTEM',
+      title: 'Vérification KYC requise',
+      body: 'Merci de soumettre votre pièce d\'identité depuis l\'app pour finaliser votre profil.',
+    });
+
+    await this.mailService.send({
+      to: user.email,
+      subject: 'Finalisez votre vérification AlloTech',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #167bda; padding: 20px; text-align: center;">
+            <h1 style="color: white; margin: 0;">AlloTech</h1>
+          </div>
+          <div style="padding: 30px; background: #f9fafb;">
+            <h2>Bonjour ${user.firstName},</h2>
+            <p>Pour continuer à recevoir des missions sur AlloTech, vous devez finaliser votre vérification d'identité (KYC).</p>
+            <p>Ouvrez l'application, allez dans <strong>Profil → Vérification KYC</strong>, et soumettez :</p>
+            <ul>
+              <li>Votre pièce d'identité (CNI, passeport ou permis de conduire)</li>
+              <li>Une photo de vous tenant la pièce</li>
+            </ul>
+            <p>Notre équipe valide les dossiers sous 24-48h.</p>
+            <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Si vous avez déjà soumis votre dossier, vous pouvez ignorer ce message.</p>
+          </div>
+        </div>
+      `,
+    });
+
+    return { success: true };
   }
 
   async getById(submissionId: string) {

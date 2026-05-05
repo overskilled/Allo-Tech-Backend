@@ -1714,6 +1714,12 @@ enum ChantierStatus {
   CANCELLED
 }
 
+enum ChantierTier {
+  BASIC
+  STANDARD
+  ENTERPRISE
+}
+
 enum ChantierMemberStatus {
   INVITED
   ACCEPTED
@@ -1746,6 +1752,8 @@ model Chantier {
   title       String
   description String         @db.Text
   status      ChantierStatus @default(DRAFT)
+  tier        ChantierTier   @default(BASIC)
+  specialty   String? // Free-form specialty hint (e.g. "Plomberie")
 
   // Location
   address      String?

@@ -114,9 +114,17 @@ export class QueryKycQueueDto extends PaginationDto {
 
   @ApiPropertyOptional({
     description:
-      'Filter by status. Defaults to SUBMITTED + UNDER_REVIEW when omitted.',
+      'Filter by status. Defaults to SUBMITTED + UNDER_REVIEW + RESUBMISSION_REQUIRED when omitted.',
   })
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'For pending-technicians listing: "unverified" (default), "verified", or "all".',
+  })
+  @IsOptional()
+  @IsString()
+  verified?: 'all' | 'verified' | 'unverified';
 }

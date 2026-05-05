@@ -12,7 +12,11 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ChantierStatus, ChantierExpenseCategory } from '@prisma/client';
+import {
+  ChantierStatus,
+  ChantierExpenseCategory,
+  ChantierTier,
+} from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 // ── Chantier CRUD ─────────────────────────────────────────
@@ -33,6 +37,17 @@ export class CreateChantierDto {
   @IsNumber()
   @Min(0)
   totalBudget: number;
+
+  @ApiPropertyOptional({ enum: ChantierTier, description: 'Forfait du chantier' })
+  @IsOptional()
+  @IsEnum(ChantierTier)
+  tier?: ChantierTier;
+
+  @ApiPropertyOptional({ description: 'Spécialité recherchée (ex : Plomberie)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  specialty?: string;
 
   @ApiPropertyOptional({ description: 'Adresse' })
   @IsOptional()
@@ -91,6 +106,17 @@ export class UpdateChantierDto {
   @IsNumber()
   @Min(0)
   totalBudget?: number;
+
+  @ApiPropertyOptional({ enum: ChantierTier, description: 'Forfait du chantier' })
+  @IsOptional()
+  @IsEnum(ChantierTier)
+  tier?: ChantierTier;
+
+  @ApiPropertyOptional({ description: 'Spécialité recherchée' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  specialty?: string;
 
   @ApiPropertyOptional({ description: 'Adresse' })
   @IsOptional()

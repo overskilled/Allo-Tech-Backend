@@ -429,7 +429,6 @@ async function main() {
     { name: 'Peinture', icon: 'paintbrush', description: 'Peinture intérieure et extérieure' },
     { name: 'Menuiserie', icon: 'hammer', description: 'Travaux de menuiserie et ébénisterie' },
     { name: 'Climatisation', icon: 'wind', description: 'Installation et maintenance de climatisation' },
-    { name: 'Informatique', icon: 'monitor', description: 'Dépannage et installation informatique' },
     { name: 'Maçonnerie', icon: 'layers', description: 'Travaux de construction et rénovation' },
     { name: 'Jardinage', icon: 'leaf', description: 'Entretien des espaces verts' },
   ];

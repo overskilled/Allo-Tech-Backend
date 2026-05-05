@@ -26,6 +26,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:seed:review": "ts-node prisma/seed-review.ts",
+    "prisma:disable-informatique": "ts-node prisma/disable-informatique.ts",
+    "prisma:reset-tech-verification": "ts-node prisma/reset-technician-verification.ts",
     "prisma:reset": "prisma migrate reset"
   },
   "dependencies": {

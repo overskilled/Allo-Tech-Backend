@@ -125,9 +125,27 @@ export class ChantiersService {
 
   async create(clientId: string, dto: CreateChantierDto) {
     return this.prisma.chantier.create({
-      data: { clientId, ...dto },
+      data: {
+        clientId,
+        ...dto,
+        // Prisma DateTime columns require full ISO-8601, but the DTO accepts
+        // date-only strings (YYYY-MM-DD). Normalise here as a defence in
+        // depth — clients should also send full ISO.
+        expectedStartDate: this.toDate(dto.expectedStartDate),
+        expectedEndDate: this.toDate(dto.expectedEndDate),
+      },
       include: this.detailIncludes(),
     });
+  }
+
+  private toDate(input?: string | null): Date | undefined {
+    if (!input) return undefined;
+    // Accept YYYY-MM-DD by upgrading to midnight UTC; accept full ISO as-is.
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(input)
+      ? `${input}T00:00:00.000Z`
+      : input;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? undefined : d;
   }
 
   async getClientChantiers(clientId: string, query: QueryChantiersDto) {
@@ -194,7 +212,15 @@ export class ChantiersService {
     await this.getChantierForClient(chantierId, clientId);
     return this.prisma.chantier.update({
       where: { id: chantierId },
-      data: dto,
+      data: {
+        ...dto,
+        ...(dto.expectedStartDate !== undefined && {
+          expectedStartDate: this.toDate(dto.expectedStartDate),
+        }),
+        ...(dto.expectedEndDate !== undefined && {
+          expectedEndDate: this.toDate(dto.expectedEndDate),
+        }),
+      },
       include: this.detailIncludes(),
     });
   }

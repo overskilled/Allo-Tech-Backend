@@ -37,11 +37,29 @@ export class AdminKycController {
   @Get('queue')
   @ApiOperation({
     summary:
-      'List KYC submissions awaiting review (default: SUBMITTED + UNDER_REVIEW)',
+      'List KYC submissions needing admin attention (default: SUBMITTED, UNDER_REVIEW, RESUBMISSION_REQUIRED)',
   })
   @ApiResponse({ status: 200 })
   getQueue(@Query() query: QueryKycQueueDto) {
     return this.kycService.getQueue(query);
+  }
+
+  @Get('pending-technicians')
+  @ApiOperation({
+    summary:
+      'List technicians (filterable: unverified by default, verified, or all) with their KYC status.',
+  })
+  @ApiResponse({ status: 200 })
+  getPendingTechnicians(@Query() query: QueryKycQueueDto) {
+    return this.kycService.getPendingTechnicians(query);
+  }
+
+  @Post('technicians/:userId/remind')
+  @ApiOperation({
+    summary: 'Send a KYC reminder email + in-app notification to a technician',
+  })
+  remindTechnician(@Param('userId') userId: string) {
+    return this.kycService.remindTechnician(userId);
   }
 
   @Get(':submissionId')

@@ -772,12 +772,13 @@ export class UsersService {
       : [];
 
     // ── 7. Map to unified shape ────────────────────────────────────────────
+    // NOTE: technician phone is intentionally omitted from this public-facing
+    // listing to protect technician contact details from anonymous clients.
     const mappedRegistered = registered.map((t) => ({
       id: t.user.id,
       firstName: t.user.firstName,
       lastName: t.user.lastName,
       profileImage: t.user.profileImage ?? null,
-      phone: t.user.phone,
       profession: t.profession,
       specialties: this.parseJsonField(t.specialties),
       city: t.city,
@@ -936,8 +937,18 @@ export class UsersService {
   private formatTechnicianProfile(profile: any) {
     if (!profile) return null;
 
+    // Strip the technician's phone from any public/client-facing payload.
+    // The owner can still read their own phone from GET /users/me (top-level
+    // User.phone), which never goes through this formatter.
+    const { user, ...rest } = profile;
+    const sanitizedUser = user ? (() => {
+      const { phone: _phone, ...safeUser } = user;
+      return safeUser;
+    })() : undefined;
+
     return {
-      ...profile,
+      ...rest,
+      ...(sanitizedUser ? { user: sanitizedUser } : {}),
       specialties: this.parseJsonField(profile.specialties),
       certifications: this.parseJsonField(profile.certifications),
       workDays: this.parseJsonField(profile.workDays),
