@@ -336,6 +336,8 @@ export class UsersService {
         neighborhood: dto.neighborhood,
         city: dto.city,
         address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
         serviceRadius: dto.serviceRadius,
         isAvailable: dto.isAvailable,
         availableFrom: dto.availableFrom,

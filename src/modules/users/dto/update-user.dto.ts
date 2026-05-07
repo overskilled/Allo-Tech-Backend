@@ -133,6 +133,20 @@ export class UpdateTechnicianProfileDto {
   @IsString()
   address?: string;
 
+  @ApiPropertyOptional({ example: 4.0511, description: 'Latitude in decimal degrees' })
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: 9.7679, description: 'Longitude in decimal degrees' })
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
   @ApiPropertyOptional({ example: 15 })
   @IsOptional()
   @IsNumber()
