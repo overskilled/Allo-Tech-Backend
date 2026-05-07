@@ -15,6 +15,7 @@ export class LocationService {
   private readonly logger = new Logger(LocationService.name);
   private readonly geocodingApiKey: string;
   private readonly geocodingProvider: string;
+  private readonly mapboxToken: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -22,9 +23,203 @@ export class LocationService {
   ) {
     this.geocodingApiKey = this.configService.get<string>('GEOCODING_API_KEY', '');
     this.geocodingProvider = this.configService.get<string>('GEOCODING_PROVIDER', 'local');
+    // Mapbox secret/public token used by the geocoding proxy. The same token
+    // also powers the in-app map. Free tier: 100k geocoding requests/month.
+    this.mapboxToken = this.configService.get<string>('MAPBOX_TOKEN', '');
 
     if (!this.geocodingApiKey && this.geocodingProvider !== 'local') {
       this.logger.warn('Geocoding API key not configured, using local geocoding');
+    }
+    if (!this.mapboxToken) {
+      this.logger.warn('MAPBOX_TOKEN not set — autocomplete proxy will return empty results');
+    }
+  }
+
+  // ==========================================
+  // PLACES AUTOCOMPLETE PROXY
+  // Tries Mapbox if the token is configured. Otherwise falls back to
+  // Photon (https://photon.komoot.io) — a free OpenStreetMap-based
+  // geocoder with no API key, suitable for fair-use traffic.
+  // ==========================================
+
+  async placesAutocomplete(input: string): Promise<
+    Array<{
+      placeId: string;
+      description: string;
+      mainText: string;
+      secondaryText: string;
+      lat?: number;
+      lng?: number;
+    }>
+  > {
+    if (!input || input.trim().length < 2) return [];
+    if (this.mapboxToken) {
+      const fromMapbox = await this.autocompleteMapbox(input);
+      if (fromMapbox.length > 0) return fromMapbox;
+    }
+    return this.autocompletePhoton(input);
+  }
+
+  async placeDetails(placeId: string): Promise<{
+    formattedAddress: string;
+    lat?: number;
+    lng?: number;
+    city?: string;
+    neighborhood?: string;
+  } | null> {
+    if (!placeId) return null;
+    // Photon predictions encode their coordinates directly in the placeId
+    // as `photon:<lat>:<lng>:<description>` so we can resolve without a
+    // second network round-trip.
+    if (placeId.startsWith('photon:')) {
+      const [, lat, lng, ...rest] = placeId.split(':');
+      const formattedAddress = rest.join(':');
+      return {
+        formattedAddress,
+        lat: lat ? Number(lat) : undefined,
+        lng: lng ? Number(lng) : undefined,
+      };
+    }
+    if (this.mapboxToken) {
+      const fromMapbox = await this.detailsMapbox(placeId);
+      if (fromMapbox) return fromMapbox;
+    }
+    // Fallback: re-search the placeId text with Photon
+    const matches = await this.autocompletePhoton(placeId);
+    if (matches.length === 0) return null;
+    const m = matches[0];
+    return {
+      formattedAddress: m.description,
+      lat: m.lat,
+      lng: m.lng,
+    };
+  }
+
+  // ── Mapbox provider ──────────────────────────────────────
+
+  private async autocompleteMapbox(input: string) {
+    const params = new URLSearchParams({
+      access_token: this.mapboxToken,
+      country: 'cm',
+      language: 'fr',
+      types: 'place,locality,neighborhood,address,poi',
+      limit: '6',
+      autocomplete: 'true',
+    });
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?${params.toString()}`;
+    try {
+      const res = await fetch(url);
+      const data: any = await res.json();
+      if (!Array.isArray(data?.features)) return [];
+      return data.features.map((f: any) => {
+        const text = f.text ?? f.place_name ?? '';
+        const place = f.place_name ?? text;
+        const secondary = place.startsWith(text)
+          ? place.slice(text.length).replace(/^,\s*/, '')
+          : place;
+        const [lng, lat] = Array.isArray(f.center) ? f.center : [undefined, undefined];
+        return {
+          placeId: String(f.id ?? f.mapbox_id ?? place),
+          description: place,
+          mainText: text,
+          secondaryText: secondary,
+          lat,
+          lng,
+        };
+      });
+    } catch (err) {
+      this.logger.warn(`Mapbox geocoding failed, falling back to Photon: ${(err as Error).message}`);
+      return [];
+    }
+  }
+
+  private async detailsMapbox(placeId: string) {
+    const params = new URLSearchParams({
+      access_token: this.mapboxToken,
+      country: 'cm',
+      language: 'fr',
+      limit: '1',
+    });
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(placeId)}.json?${params.toString()}`;
+    try {
+      const res = await fetch(url);
+      const data: any = await res.json();
+      const feature = data?.features?.[0];
+      if (!feature) return null;
+      const [lng, lat] = Array.isArray(feature.center) ? feature.center : [undefined, undefined];
+      const ctx: Array<{ id: string; text: string }> = feature.context ?? [];
+      let city: string | undefined;
+      let neighborhood: string | undefined;
+      for (const c of ctx) {
+        if (!city && (c.id.startsWith('place') || c.id.startsWith('locality'))) city = c.text;
+        if (!neighborhood && c.id.startsWith('neighborhood')) neighborhood = c.text;
+      }
+      if (!neighborhood && (feature.id ?? '').startsWith('neighborhood')) neighborhood = feature.text;
+      if (!city && (feature.id ?? '').startsWith('place')) city = feature.text;
+      return {
+        formattedAddress: feature.place_name ?? feature.text ?? '',
+        lat,
+        lng,
+        city,
+        neighborhood,
+      };
+    } catch (err) {
+      this.logger.warn(`Mapbox details failed: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  // ── Photon (free OSM) provider ───────────────────────────
+
+  private async autocompletePhoton(input: string) {
+    const params = new URLSearchParams({
+      q: input,
+      limit: '6',
+      lang: 'fr',
+    });
+    // Bias results toward Cameroon (Douala) but still allow worldwide hits.
+    params.append('lat', '4.0511');
+    params.append('lon', '9.7679');
+    const url = `https://photon.komoot.io/api/?${params.toString()}`;
+
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'AlloTech/1.0 (https://allotechafrica.com)' },
+      });
+      const data: any = await res.json();
+      if (!Array.isArray(data?.features)) return [];
+
+      return data.features.map((f: any) => {
+        const props = f.properties ?? {};
+        const [lng, lat] = Array.isArray(f.geometry?.coordinates)
+          ? f.geometry.coordinates
+          : [undefined, undefined];
+
+        const main = props.name ?? props.street ?? props.city ?? '';
+        const secondaryParts = [
+          props.housenumber && props.street ? `${props.housenumber} ${props.street}` : props.street,
+          props.district,
+          props.city,
+          props.state,
+          props.country,
+        ]
+          .filter((v: string | undefined) => v && v !== main)
+          .filter(Boolean);
+        const secondary = secondaryParts.join(', ');
+        const description = [main, secondary].filter(Boolean).join(', ');
+
+        return {
+          placeId: `photon:${lat ?? ''}:${lng ?? ''}:${description}`,
+          description,
+          mainText: main,
+          secondaryText: secondary,
+          lat,
+          lng,
+        };
+      });
+    } catch (err) {
+      this.logger.error(`Photon geocoding failed: ${(err as Error).message}`);
+      return [];
     }
   }
 

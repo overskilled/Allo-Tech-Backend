@@ -49,6 +49,32 @@ export class LocationController {
   }
 
   // ==========================================
+  // PLACES AUTOCOMPLETE PROXY (server-side Google key)
+  // ==========================================
+
+  @Get('places/autocomplete')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Autocomplete address suggestions (proxies Google Places)',
+  })
+  async placesAutocomplete(@Query('input') input: string) {
+    const predictions = await this.locationService.placesAutocomplete(input);
+    return { predictions };
+  }
+
+  @Get('places/details')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Place details for a placeId (proxies Google Places)',
+  })
+  async placeDetails(@Query('placeId') placeId: string) {
+    const result = await this.locationService.placeDetails(placeId);
+    return result || { error: 'Place not found' };
+  }
+
+  // ==========================================
   // GEOCODING ENDPOINTS
   // ==========================================
 
