@@ -23,10 +23,11 @@ import {
   QueryKycQueueDto,
 } from './dto/kyc.dto';
 
+// Only the front and back of an ID document are required. Selfie + proof of
+// address + certifications are optional and no longer enforced at submission.
 const REQUIRED_DOCUMENTS: KycDocumentType[] = [
   KycDocumentType.ID_FRONT,
   KycDocumentType.ID_BACK,
-  KycDocumentType.SELFIE,
 ];
 
 const SUBMISSION_INCLUDE = {
