@@ -149,4 +149,18 @@ export class AdminController {
   ) {
     return this.adminService.rejectVerification(userId, reason);
   }
+
+  // ==========================================
+  // TECHNICIAN ENGAGEMENT (legal record)
+  // ==========================================
+
+  @Get('technicians/:userId/engagement')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Retrieve a technician engagement signature (legal audit trail)',
+  })
+  @ApiResponse({ status: 200, description: 'Engagement record' })
+  getTechnicianEngagement(@Param('userId') userId: string) {
+    return this.adminService.getTechnicianEngagement(userId);
+  }
 }

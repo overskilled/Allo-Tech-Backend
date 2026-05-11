@@ -296,7 +296,11 @@ export class AuthService {
     };
   }
 
-  async completeTechnicianProfile(userId: string, dto: CompleteProfileTechnicianDto) {
+  async completeTechnicianProfile(
+    userId: string,
+    dto: CompleteProfileTechnicianDto,
+    audit?: { ipAddress?: string; userAgent?: string },
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -360,6 +364,35 @@ export class AuthService {
       },
       update: {},
     });
+
+    // ── Engagement (legal commitment record) ───────────────────────
+    // Persisted as an audit trail. Only written once — if the technician
+    // somehow re-runs the flow, we keep the original record intact and
+    // ignore the new signature (Prisma's @unique on userId enforces this).
+    if (
+      dto.engagementAcceptedAt &&
+      dto.engagementSignedName &&
+      dto.engagementSignatureImage
+    ) {
+      // Strip the optional data URL prefix so we store just the raw base64.
+      const cleanSignature = dto.engagementSignatureImage.replace(
+        /^data:image\/[a-zA-Z]+;base64,/,
+        '',
+      );
+      await this.prisma.technicianEngagement.upsert({
+        where: { userId },
+        create: {
+          userId,
+          signedName: dto.engagementSignedName,
+          signatureImage: cleanSignature,
+          ipAddress: audit?.ipAddress,
+          userAgent: audit?.userAgent,
+          acceptedAt: new Date(dto.engagementAcceptedAt),
+        },
+        // Keep the original signing event intact — never overwrite.
+        update: {},
+      });
+    }
 
     await this.mailService.sendWelcome(user.email, user.firstName || 'Utilisateur', 'technicien');
 

@@ -563,6 +563,50 @@ export class AdminService {
   }
 
   // ==========================================
+  // TECHNICIAN ENGAGEMENT (legal record)
+  // ==========================================
+
+  /**
+   * Returns the engagement signature row for a given technician along with
+   * the user's identifying info. Used by admins for legal verification.
+   * The signature image is returned as a base64 PNG (no `data:` prefix) so
+   * the admin UI can render it as `<img src="data:image/png;base64,…" />`.
+   */
+  async getTechnicianEngagement(userId: string) {
+    const engagement = await this.prisma.technicianEngagement.findUnique({
+      where: { userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            createdAt: true,
+            technicianProfile: {
+              select: {
+                profession: true,
+                city: true,
+                neighborhood: true,
+                address: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!engagement) {
+      throw new NotFoundException(
+        "Aucun engagement enregistré pour ce technicien.",
+      );
+    }
+
+    return engagement;
+  }
+
+  // ==========================================
   // ACTIVITY LOGS
   // ==========================================
 

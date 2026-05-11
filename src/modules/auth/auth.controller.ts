@@ -8,7 +8,9 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -164,8 +166,19 @@ export class AuthController {
   async completeTechnicianProfile(
     @CurrentUser('id') userId: string,
     @Body() dto: CompleteProfileTechnicianDto,
+    @Req() req: Request,
   ) {
-    return this.authService.completeTechnicianProfile(userId, dto);
+    // Pull the audit fields off the request so the service can persist them
+    // alongside the engagement signature.
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      undefined;
+    const userAgent = (req.headers['user-agent'] as string) || undefined;
+    return this.authService.completeTechnicianProfile(userId, dto, {
+      ipAddress,
+      userAgent,
+    });
   }
 
   // ==========================================

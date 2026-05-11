@@ -118,6 +118,28 @@ export class CompleteProfileTechnicianDto {
   @IsString({ each: true })
   certifications?: string[];
 
+  // ── Engagement (audit trail) ────────────────────────────────────
+  @ApiPropertyOptional({
+    description: 'ISO timestamp when the technician accepted the engagement charter.',
+  })
+  @IsOptional()
+  @IsString()
+  engagementAcceptedAt?: string;
+
+  @ApiPropertyOptional({
+    description: 'Full legal name typed by the technician as part of the signature.',
+  })
+  @IsOptional()
+  @IsString()
+  engagementSignedName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Drawn signature as a base64-encoded PNG data URL.',
+  })
+  @IsOptional()
+  @IsString()
+  engagementSignatureImage?: string;
+
   @ApiProperty({ example: 'Akwa' })
   @IsString()
   neighborhood: string;

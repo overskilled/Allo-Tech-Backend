@@ -233,9 +233,10 @@ model User {
   lastLoginAt DateTime?
 
   // Relations
-  clientProfile     ClientProfile?
-  technicianProfile TechnicianProfile?
-  license           License?
+  clientProfile        ClientProfile?
+  technicianProfile    TechnicianProfile?
+  technicianEngagement TechnicianEngagement?
+  license              License?
 
   // As client
   needsCreated             Need[]         @relation("ClientNeeds")
@@ -405,6 +406,35 @@ model TechnicianProfile {
   @@index([isVerified])
   @@index([city])
   @@index([avgRating])
+}
+
+// ===========================================
+// TECHNICIAN ENGAGEMENT (legal commitment record)
+// ===========================================
+// Captures the moment a technician signed the engagement charter during
+// onboarding. Used as the audit trail for any legal dispute — never edit
+// or delete rows once written.
+model TechnicianEngagement {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Full name the technician typed as a typed signature confirmation.
+  signedName String
+  /// Base64-encoded PNG of the drawn signature (data URL prefix stripped).
+  signatureImage String @db.Text
+  /// Hash of the canonical engagement text the user accepted, in case the
+  /// charter is ever updated — lets us prove which version they signed.
+  documentVersion String @default("v1-2026-05")
+
+  /// Captured context, useful in court.
+  ipAddress String?
+  userAgent String? @db.Text
+
+  acceptedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([acceptedAt])
 }
 
 // ===========================================
