@@ -24,7 +24,7 @@ import {
   CompleteProfileClientDto,
   CompleteProfileTechnicianDto,
 } from './dto/register.dto';
-import { LoginDto, GoogleAuthDto, RefreshTokenDto } from './dto/login.dto';
+import { LoginDto, GoogleAuthDto, AppleAuthDto, RefreshTokenDto } from './dto/login.dto';
 import {
   ForgotPasswordDto,
   VerifyResetOtpDto,
@@ -71,6 +71,16 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid Google token' })
   async googleAuth(@Body() dto: GoogleAuthDto) {
     return this.authService.googleAuth(dto);
+  }
+
+  @Public()
+  @Post('apple')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Authenticate with Apple' })
+  @ApiResponse({ status: 200, description: 'Apple authentication successful' })
+  @ApiResponse({ status: 401, description: 'Invalid Apple token' })
+  async appleAuth(@Body() dto: AppleAuthDto) {
+    return this.authService.appleAuth(dto);
   }
 
   @Public()

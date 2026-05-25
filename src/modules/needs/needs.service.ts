@@ -17,6 +17,7 @@ import {
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { NeedStatus } from '@prisma/client';
 import { ProximityMatchingService } from './proximity-matching.service';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
 @Injectable()
 export class NeedsService {
@@ -25,6 +26,7 @@ export class NeedsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly proximityMatchingService: ProximityMatchingService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -278,6 +280,20 @@ export class NeedsService {
     } catch {
       // Non-blocking: proximity broadcast is best-effort
     }
+
+    this.analytics.capture({
+      distinctId: clientId,
+      event: ANALYTICS_EVENTS.NEED_CREATED,
+      properties: {
+        need_id: need.id,
+        category_id: need.categoryId,
+        urgency: need.urgency,
+        budget_min: need.budgetMin,
+        budget_max: need.budgetMax,
+        city: need.city,
+        has_images: !!dto.images?.length,
+      },
+    });
 
     return this.formatNeed(need);
   }
@@ -537,6 +553,12 @@ export class NeedsService {
     await this.prisma.candidature.updateMany({
       where: { needId, status: 'PENDING' },
       data: { status: 'REJECTED' },
+    });
+
+    this.analytics.capture({
+      distinctId: need.clientId,
+      event: ANALYTICS_EVENTS.NEED_CANCELLED,
+      properties: { need_id: needId, previous_status: need.status },
     });
 
     return { message: 'Need cancelled successfully' };

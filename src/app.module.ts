@@ -31,6 +31,7 @@ import { LocationModule } from './modules/location/location.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { TechniciansModule } from './modules/technicians/technicians.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
 @Module({
@@ -46,6 +47,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     UploadModule, // Global upload service
     LocationModule, // Global location service
     FirebaseModule, // Global Firebase (FCM + Storage)
+    AnalyticsModule, // Global PostHog analytics
     WalletModule,
     AuthModule,
     UsersModule,

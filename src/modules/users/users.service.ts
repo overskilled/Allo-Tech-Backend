@@ -642,6 +642,20 @@ export class UsersService {
       where.specialties = { contains: query.specialty };
     }
 
+    // Category filter: technicians have no category FK, so match the category
+    // name against profession/specialties. ANDed with any text search.
+    if (query.category) {
+      where.AND = [
+        ...(where.AND ?? []),
+        {
+          OR: [
+            { profession: { contains: query.category, mode: 'insensitive' } },
+            { specialties: { contains: query.category, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+
     if (query.search) {
       where.OR = [
         { profession: { contains: query.search } },
@@ -700,6 +714,17 @@ export class UsersService {
     if (query.isAvailable !== undefined) regWhere.isAvailable = query.isAvailable;
     if (query.minRating) regWhere.avgRating = { gte: query.minRating };
     if (query.specialty) regWhere.specialties = { contains: query.specialty };
+    if (query.category) {
+      regWhere.AND = [
+        ...(regWhere.AND ?? []),
+        {
+          OR: [
+            { profession: { contains: query.category, mode: 'insensitive' } },
+            { specialties: { contains: query.category, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
     if (search) {
       regWhere.OR = [
         { profession: { contains: search, mode: 'insensitive' } },
@@ -726,6 +751,17 @@ export class UsersService {
       ];
     }
     if (query.specialty) unregWhere.specialties = { contains: query.specialty };
+    if (query.category) {
+      unregWhere.AND = [
+        ...(unregWhere.AND ?? []),
+        {
+          OR: [
+            { profession: { contains: query.category, mode: 'insensitive' } },
+            { specialties: { contains: query.category, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
 
     // ── 3. Counts ──────────────────────────────────────────────────────────
     const [regCount, unregCount] = await Promise.all([

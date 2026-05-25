@@ -21,6 +21,7 @@ import {
 } from './dto/mission.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { MissionStatus } from '@prisma/client';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
 @Injectable()
 export class MissionsService {
@@ -32,6 +33,7 @@ export class MissionsService {
     private readonly mailService: MailService,
     private readonly pawaPayService: PawaPayService,
     private readonly notificationsService: NotificationsService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -451,6 +453,17 @@ export class MissionsService {
       });
     }
 
+    this.analytics.capture({
+      distinctId: technicianId,
+      event: ANALYTICS_EVENTS.MISSION_STARTED,
+      properties: {
+        mission_id: missionId,
+        need_id: mission.needId,
+        quotation_id: mission.quotationId,
+      },
+      groups: { technician: technicianId },
+    });
+
     return updated;
   }
 
@@ -564,6 +577,19 @@ export class MissionsService {
     const needTitle = updated.need?.title || 'Mission';
 
     if (updated.status === 'COMPLETED') {
+      // Attributed to the client (demand funnel); technician group + id carried
+      // as properties so supply-side analytics see it too.
+      this.analytics.capture({
+        distinctId: mission.clientId,
+        event: ANALYTICS_EVENTS.MISSION_COMPLETED,
+        properties: {
+          mission_id: missionId,
+          need_id: mission.needId,
+          technician_id: mission.technicianId,
+        },
+        groups: { technician: mission.technicianId },
+      });
+
       // Both parties validated notify both with push + email
       const clientUser = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
       const techUser = await this.prisma.user.findUnique({ where: { id: mission.technicianId }, select: { email: true, firstName: true } });
@@ -642,6 +668,17 @@ export class MissionsService {
         cancelledBy: isClient ? 'le client' : 'le technicien',
       });
     }
+
+    this.analytics.capture({
+      distinctId: userId,
+      event: ANALYTICS_EVENTS.MISSION_CANCELLED,
+      properties: {
+        mission_id: missionId,
+        need_id: mission.needId,
+        cancelled_by: isClient ? 'client' : 'technician',
+        reason: dto.reason,
+      },
+    });
 
     return updated;
   }

@@ -99,6 +99,9 @@ async function bootstrap() {
     logger.log('Swagger documentation available at /docs');
   }
 
+  // Flush batched analytics (and other onApplicationShutdown hooks) on exit.
+  app.enableShutdownHooks();
+
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
   logger.log(`Application is running on: http://localhost:${port}`);

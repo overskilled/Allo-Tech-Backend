@@ -1,23 +1,34 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { OAuth2Client } from 'google-auth-library';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { RegisterDto, CompleteProfileClientDto, CompleteProfileTechnicianDto } from './dto/register.dto';
-import { LoginDto, GoogleAuthDto } from './dto/login.dto';
+import { LoginDto, GoogleAuthDto, AppleAuthDto } from './dto/login.dto';
 import { ForgotPasswordDto, VerifyResetOtpDto, ResetPasswordDto, ChangePasswordDto } from './dto/password.dto';
 import { UserRole, UserStatus } from '@prisma/client';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
+
+// Apple's public keys for verifying the identity token (rotated by Apple;
+// `jose` caches and refreshes them automatically).
+const APPLE_JWKS = createRemoteJWKSet(
+  new URL('https://appleid.apple.com/auth/keys'),
+);
+const APPLE_ISSUER = 'https://appleid.apple.com';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private googleClient: OAuth2Client;
 
   constructor(
@@ -25,6 +36,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly analytics: AnalyticsService,
   ) {
     this.googleClient = new OAuth2Client(
       this.configService.get('GOOGLE_CLIENT_ID'),
@@ -32,46 +44,123 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('Email already registered');
+    // Supports two signup paths:
+    //  - Web: email + password (verified by email).
+    //  - Mobile 1-step: phone + password (usable immediately; no email to verify).
+    const hasEmail = !!dto.email;
+    const normalizedPhone = dto.phone
+      ? dto.phone.replace(/[\s-]/g, '')
+      : undefined;
+    if (!hasEmail && !normalizedPhone) {
+      throw new BadRequestException('Email or phone number is required');
     }
 
+    if (hasEmail) {
+      const existing = await this.prisma.user.findUnique({
+        where: { email: dto.email },
+      });
+      if (existing) throw new ConflictException('Email already registered');
+    }
+    if (normalizedPhone) {
+      const existingPhone = await this.prisma.user.findFirst({
+        where: { OR: [{ phone: dto.phone }, { phone: normalizedPhone }] },
+      });
+      if (existingPhone) {
+        throw new ConflictException('Phone number already registered');
+      }
+    }
+
+    const role =
+      dto.role === 'TECHNICIAN' ? UserRole.TECHNICIAN : UserRole.CLIENT;
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const emailVerifyToken = uuidv4();
+    const phoneOnly = !hasEmail; // mobile 1-step signup
+
+    // email is @unique & required → synthesize a placeholder for phone signups.
+    const email = hasEmail
+      ? dto.email!
+      : `${normalizedPhone}@phone.allotech.local`;
+    const emailVerifyToken = hasEmail ? uuidv4() : undefined;
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         passwordHash,
         firstName: dto.firstName,
         lastName: dto.lastName,
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-        phone: dto.phone,
-        status: UserStatus.PENDING_VERIFICATION,
-        emailVerifyToken,
-        emailVerifyExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        phone: normalizedPhone ?? null,
+        role,
+        // A phone CLIENT is usable immediately (1-step). Technicians still need
+        // their profile + KYC, and email signups must verify their address.
+        status:
+          phoneOnly && role === UserRole.CLIENT
+            ? UserStatus.ACTIVE
+            : UserStatus.PENDING_VERIFICATION,
+        ...(emailVerifyToken && {
+          emailVerifyToken,
+          emailVerifyExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }),
       },
     });
 
-    await this.mailService.sendEmailVerification(user.email, user.firstName || 'Utilisateur', emailVerifyToken);
+    if (hasEmail && emailVerifyToken) {
+      await this.mailService.sendEmailVerification(
+        user.email,
+        user.firstName || 'Utilisateur',
+        emailVerifyToken,
+      );
+    }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
+    const profile = await this.getUserProfile(user.id, user.role);
+
+    this.analytics.identify(user.id, {
+      role: user.role,
+      auth_provider: 'local',
+      email_verified: user.emailVerified,
+    });
+    this.analytics.capture({
+      distinctId: user.id,
+      event: ANALYTICS_EVENTS.USER_REGISTERED,
+      properties: {
+        role: user.role,
+        auth_provider: 'local',
+        method: phoneOnly ? 'phone' : 'email',
+      },
+    });
 
     return {
-      message: 'Registration successful. Please verify your email.',
+      message: phoneOnly
+        ? 'Registration successful.'
+        : 'Registration successful. Please verify your email.',
       user: this.sanitizeUser(user),
+      profile,
       ...tokens,
     };
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+    // Accept either an email (web + legacy) or a phone number (mobile gate).
+    const rawIdentifier = (dto.identifier ?? dto.email ?? '').trim();
+    if (!rawIdentifier) {
+      throw new BadRequestException('Email or phone number is required');
+    }
+
+    const isEmail = rawIdentifier.includes('@');
+    let user;
+    if (isEmail) {
+      user = await this.prisma.user.findUnique({
+        where: { email: rawIdentifier.toLowerCase() },
+      });
+    } else {
+      // Phone is unique; findFirst keeps this resilient even before the
+      // uniqueness migration is applied. Match the raw value and a
+      // whitespace/dash-stripped variant to tolerate formatting differences.
+      const normalized = rawIdentifier.replace(/[\s-]/g, '');
+      user = await this.prisma.user.findFirst({
+        where: { OR: [{ phone: rawIdentifier }, { phone: normalized }] },
+      });
+    }
 
     if (!user || !user.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
@@ -94,6 +183,16 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     const profile = await this.getUserProfile(user.id, user.role);
+
+    this.analytics.capture({
+      distinctId: user.id,
+      event: ANALYTICS_EVENTS.USER_LOGGED_IN,
+      properties: {
+        role: user.role,
+        auth_provider: user.authProvider ?? 'local',
+        method: isEmail ? 'email' : 'phone',
+      },
+    });
 
     return {
       user: this.sanitizeUser(user),
@@ -197,6 +296,19 @@ export class AuthService {
       const tokens = await this.generateTokens(user.id, user.email, user.role);
       const profile = await this.getUserProfile(user.id, user.role);
 
+      this.analytics.identify(user.id, {
+        role: user.role,
+        auth_provider: 'google',
+        email_verified: true,
+      });
+      this.analytics.capture({
+        distinctId: user.id,
+        event: isNewUser
+          ? ANALYTICS_EVENTS.OAUTH_SIGNUP
+          : ANALYTICS_EVENTS.USER_LOGGED_IN,
+        properties: { provider: 'google', role: user.role },
+      });
+
       return {
         isNewUser,
         user: this.sanitizeUser(user),
@@ -207,8 +319,98 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+      // Surface the real reason (token expired, audience mismatch, clock skew,
+      // cert-fetch network failure, …). Without this it is swallowed into a
+      // generic 401 and impossible to debug.
+      this.logger.error(
+        `Google ID token verification failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       throw new UnauthorizedException('Google authentication failed');
     }
+  }
+
+  async appleAuth(dto: AppleAuthDto) {
+    let email: string | undefined;
+    let sub: string;
+
+    try {
+      // Audience is the app's bundle id for native sign-in (or the Services ID
+      // for the web flow). Configure APPLE_CLIENT_ID = com.overskilled.allotech.
+      const audience = this.configService.get<string>('APPLE_CLIENT_ID');
+      const { payload } = await jwtVerify(dto.identityToken, APPLE_JWKS, {
+        issuer: APPLE_ISSUER,
+        audience,
+      });
+
+      sub = payload.sub as string;
+      email = payload.email as string | undefined;
+      if (!sub) {
+        throw new UnauthorizedException('Invalid Apple token');
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException('Apple authentication failed');
+    }
+
+    // Match by appleId first, then by email (account linking), else create.
+    let user = await this.prisma.user.findFirst({ where: { appleId: sub } });
+    const isNewUser = !user;
+
+    if (!user && email) {
+      user = await this.prisma.user.findUnique({ where: { email } });
+    }
+
+    if (!user) {
+      // Apple may withhold the real email (private relay) or omit it entirely.
+      const fallbackEmail = email ?? `apple_${sub.replace(/[^a-zA-Z0-9]/g, '')}@privaterelay.appleid.com`;
+      user = await this.prisma.user.create({
+        data: {
+          email: fallbackEmail,
+          firstName: dto.firstName || 'Utilisateur',
+          lastName: dto.lastName || '',
+          appleId: sub,
+          authProvider: 'apple',
+          emailVerified: !!email,
+          status: UserStatus.PENDING_VERIFICATION, // still needs to complete profile
+        },
+      });
+    } else if (!user.appleId) {
+      // Link Apple to an existing account.
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { appleId: sub, authProvider: user.authProvider || 'apple' },
+      });
+    }
+
+    if (user.status === 'SUSPENDED') {
+      throw new UnauthorizedException('Account is suspended');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    const profile = await this.getUserProfile(user.id, user.role);
+
+    this.analytics.identify(user.id, { role: user.role, auth_provider: 'apple' });
+    this.analytics.capture({
+      distinctId: user.id,
+      event: isNewUser
+        ? ANALYTICS_EVENTS.OAUTH_SIGNUP
+        : ANALYTICS_EVENTS.USER_LOGGED_IN,
+      properties: { provider: 'apple', role: user.role },
+    });
+
+    return {
+      isNewUser,
+      user: this.sanitizeUser(user),
+      profile,
+      ...tokens,
+    };
   }
 
   async selectRole(userId: string, role: 'CLIENT' | 'TECHNICIAN') {
@@ -223,6 +425,13 @@ export class AuthService {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { role: role as UserRole },
+    });
+
+    this.analytics.identify(user.id, { role: user.role });
+    this.analytics.capture({
+      distinctId: user.id,
+      event: ANALYTICS_EVENTS.ROLE_SELECTED,
+      properties: { role: user.role },
     });
 
     return {

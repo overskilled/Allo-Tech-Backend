@@ -1,0 +1,10 @@
+allowBuilds:
+  '@firebase/util': false
+  '@nestjs/core': false
+  '@prisma/client': false
+  '@prisma/engines': false
+  '@sentry-internal/node-cpu-profiler': false
+  bcrypt: false
+  prisma: false
+  protobufjs: false
+  sharp: false

@@ -17,6 +17,7 @@ import {
 } from './dto/candidature.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { CandidatureStatus } from '@prisma/client';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
 @Injectable()
 export class CandidaturesService {
@@ -27,6 +28,7 @@ export class CandidaturesService {
     private readonly missionsService: MissionsService,
     private readonly mailService: MailService,
     private readonly notificationsService: NotificationsService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -158,6 +160,18 @@ export class CandidaturesService {
       });
     }
 
+    this.analytics.capture({
+      distinctId: technicianId,
+      event: ANALYTICS_EVENTS.CANDIDATURE_CREATED,
+      properties: {
+        candidature_id: candidature.id,
+        need_id: dto.needId,
+        proposed_price: dto.proposedPrice,
+        fee_xaf: CANDIDATURE_FEE,
+      },
+      groups: { technician: technicianId },
+    });
+
     // ---- Auto-accept if proposed price is within client's budget ----
     const withinBudget =
       dto.proposedPrice != null &&
@@ -234,6 +248,18 @@ export class CandidaturesService {
           proposedPrice: dto.proposedPrice,
         });
       }
+
+      this.analytics.capture({
+        distinctId: technicianId,
+        event: ANALYTICS_EVENTS.CANDIDATURE_AUTO_ACCEPTED,
+        properties: {
+          candidature_id: candidature.id,
+          need_id: dto.needId,
+          client_id: candidature.need.client.id,
+          proposed_price: dto.proposedPrice,
+        },
+        groups: { technician: technicianId },
+      });
     }
 
     return candidature;
@@ -551,6 +577,20 @@ export class CandidaturesService {
       needTitle: updated.need.title,
       accepted: newStatus === 'ACCEPTED',
       needId: updated.need.id,
+    });
+
+    this.analytics.capture({
+      distinctId: clientId,
+      event:
+        newStatus === 'ACCEPTED'
+          ? ANALYTICS_EVENTS.CANDIDATURE_ACCEPTED
+          : ANALYTICS_EVENTS.CANDIDATURE_REJECTED,
+      properties: {
+        candidature_id: candidatureId,
+        need_id: candidature.needId,
+        technician_id: candidature.technicianId,
+      },
+      groups: { technician: candidature.technicianId },
     });
 
     return {

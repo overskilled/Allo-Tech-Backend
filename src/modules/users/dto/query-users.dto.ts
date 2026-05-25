@@ -52,6 +52,14 @@ export class QueryTechniciansDto extends PaginationDto {
   @IsString()
   specialty?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Filter by category name (matched against profession/specialties)',
+  })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

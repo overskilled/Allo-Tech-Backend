@@ -18,9 +18,17 @@ export enum RegisterRole {
 }
 
 export class RegisterDto {
-  @ApiProperty({ example: 'john@example.com' })
+  // Either email (web) or phone (mobile 1-step) must be provided — enforced in
+  // the service. Phone-only signups get a placeholder email (email is @unique).
+  @ApiPropertyOptional({ example: 'john@example.com' })
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
+
+  @ApiPropertyOptional({ enum: RegisterRole, example: RegisterRole.CLIENT })
+  @IsOptional()
+  @IsEnum(RegisterRole)
+  role?: RegisterRole;
 
   @ApiProperty({ example: 'SecurePass123!' })
   @IsString()

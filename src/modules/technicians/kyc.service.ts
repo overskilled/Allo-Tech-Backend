@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 import {
   UpsertKycInfoDto,
   UploadKycDocumentDto,
@@ -61,6 +62,7 @@ export class KycService {
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly notificationsService: NotificationsService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -266,6 +268,14 @@ export class KycService {
       include: SUBMISSION_INCLUDE,
     });
 
+    this.analytics.identify(updated.technicianId, { kyc_status: 'SUBMITTED' });
+    this.analytics.capture({
+      distinctId: updated.technicianId,
+      event: ANALYTICS_EVENTS.KYC_SUBMITTED,
+      properties: { submission_id: updated.id },
+      groups: { technician: updated.technicianId },
+    });
+
     return updated;
   }
 
@@ -454,7 +464,7 @@ export class KycService {
       );
     }
 
-    return this.prisma.kycSubmission.update({
+    const reviewing = await this.prisma.kycSubmission.update({
       where: { id: submissionId },
       data: {
         status: KycStatus.UNDER_REVIEW,
@@ -462,6 +472,15 @@ export class KycService {
       },
       include: SUBMISSION_INCLUDE,
     });
+
+    this.analytics.capture({
+      distinctId: reviewing.technicianId,
+      event: ANALYTICS_EVENTS.KYC_REVIEW_STARTED,
+      properties: { submission_id: submissionId, admin_id: adminId },
+      groups: { technician: reviewing.technicianId },
+    });
+
+    return reviewing;
   }
 
   async reviewDocument(
@@ -546,6 +565,18 @@ export class KycService {
       return updated;
     });
 
+    this.analytics.identify(submission.technicianId, {
+      kyc_status: 'APPROVED',
+      is_verified: true,
+      status: 'ACTIVE',
+    });
+    this.analytics.capture({
+      distinctId: submission.technicianId,
+      event: ANALYTICS_EVENTS.KYC_APPROVED,
+      properties: { submission_id: submissionId, admin_id: adminId },
+      groups: { technician: submission.technicianId },
+    });
+
     await this.notifyApproved(result.technician);
     return result;
   }
@@ -579,6 +610,17 @@ export class KycService {
         adminNotes: dto.reason,
       },
       include: SUBMISSION_INCLUDE,
+    });
+
+    this.analytics.identify(updated.technicianId, { kyc_status: nextStatus });
+    this.analytics.capture({
+      distinctId: updated.technicianId,
+      event:
+        nextStatus === KycStatus.RESUBMISSION_REQUIRED
+          ? ANALYTICS_EVENTS.KYC_RESUBMISSION_REQUIRED
+          : ANALYTICS_EVENTS.KYC_REJECTED,
+      properties: { submission_id: submissionId, admin_id: adminId },
+      groups: { technician: updated.technicianId },
     });
 
     await this.notifyRejected(updated.technician, dto.reason, nextStatus);

@@ -23,6 +23,7 @@ import { MissionsService } from '../missions/missions.service';
 import { MailService } from '../mail/mail.service';
 import { PawaPayService } from '../payments/providers/pawapay.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
 @Injectable()
 export class QuotationsService {
@@ -35,6 +36,7 @@ export class QuotationsService {
     private readonly mailService: MailService,
     private readonly pawaPayService: PawaPayService,
     private readonly notificationsService: NotificationsService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -248,6 +250,17 @@ export class QuotationsService {
       }
     }
 
+    this.analytics.capture({
+      distinctId: technicianId,
+      event: ANALYTICS_EVENTS.QUOTATION_SENT,
+      properties: {
+        quotation_id: updated.id,
+        need_id: updated.needId,
+        total_cost: Number(updated.totalCost),
+        currency: 'XAF',
+      },
+    });
+
     return this.formatQuotation(updated);
   }
 
@@ -364,6 +377,21 @@ export class QuotationsService {
         });
       }
     }
+
+    this.analytics.capture({
+      distinctId: clientId,
+      event:
+        newStatus === 'ACCEPTED'
+          ? ANALYTICS_EVENTS.QUOTATION_ACCEPTED
+          : ANALYTICS_EVENTS.QUOTATION_REJECTED,
+      properties: {
+        quotation_id: quotationId,
+        need_id: quotation.needId,
+        technician_id: quotation.technicianId,
+        total_cost: Number(quotation.totalCost),
+        currency: 'XAF',
+      },
+    });
 
     return {
       quotation: this.formatQuotation(updated),

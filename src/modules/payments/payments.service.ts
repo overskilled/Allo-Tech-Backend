@@ -26,6 +26,7 @@ import {
 } from './dto/payment.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { LicensePlan } from '../licenses/dto/license.dto';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
 @Injectable()
 export class PaymentsService {
@@ -44,6 +45,7 @@ export class PaymentsService {
     private readonly quotationsService: QuotationsService,
     @Inject(forwardRef(() => MissionsService))
     private readonly missionsService: MissionsService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -123,6 +125,19 @@ export class PaymentsService {
 
       this.logger.log(`PawaPay payment initiated: ${payment.id} - Deposit: ${result.depositId}`);
 
+      this.analytics.capture({
+        distinctId: userId,
+        event: ANALYTICS_EVENTS.PAYMENT_INITIATED,
+        properties: {
+          payment_id: payment.id,
+          provider: 'pawapay',
+          operator: dto.operator,
+          purpose: dto.purpose,
+          amount: dto.amount,
+          currency: dto.currency || 'XAF',
+        },
+      });
+
       return {
         paymentId: payment.id,
         provider: PaymentProvider.PAWAPAY,
@@ -141,6 +156,19 @@ export class PaymentsService {
             ...(payment.paymentDetails ? JSON.parse(payment.paymentDetails as string) : {}),
             error: (error as any).message,
           }),
+        },
+      });
+
+      this.analytics.capture({
+        distinctId: userId,
+        event: ANALYTICS_EVENTS.PAYMENT_FAILED,
+        properties: {
+          payment_id: payment.id,
+          provider: 'pawapay',
+          purpose: dto.purpose,
+          amount: dto.amount,
+          currency: dto.currency || 'XAF',
+          reason: (error as any).message,
         },
       });
 
@@ -477,6 +505,21 @@ export class PaymentsService {
         currency: payment.currency,
         paymentId: paymentId,
         purpose: paymentDetails.purpose,
+      });
+    }
+
+    if (payment.clientId) {
+      this.analytics.capture({
+        distinctId: payment.clientId,
+        event: ANALYTICS_EVENTS.PAYMENT_SUCCEEDED,
+        properties: {
+          payment_id: paymentId,
+          purpose: paymentDetails.purpose,
+          amount: Number(payment.amount),
+          currency: payment.currency,
+          provider: payment.paymentMethod,
+          transaction_id: payment.transactionId ?? undefined,
+        },
       });
     }
 

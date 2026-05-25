@@ -15,12 +15,14 @@ import {
   LICENSE_PRICING,
   TRIAL_DURATION_DAYS,
 } from './dto/license.dto';
+import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
 @Injectable()
 export class LicensesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ==========================================
@@ -65,6 +67,13 @@ export class LicensesService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { status: 'TRIAL' },
+    });
+
+    this.analytics.identify(userId, { status: 'TRIAL', license_plan: license.plan });
+    this.analytics.capture({
+      distinctId: userId,
+      event: ANALYTICS_EVENTS.TRIAL_STARTED,
+      properties: { plan: license.plan, trial_end: trialEnd.toISOString() },
     });
 
     return license;
@@ -131,6 +140,13 @@ export class LicensesService {
       endDate: endDate.toLocaleDateString('fr-FR'),
     });
 
+    this.analytics.identify(license.userId, { status: 'ACTIVE', license_plan: dto.plan });
+    this.analytics.capture({
+      distinctId: license.userId,
+      event: ANALYTICS_EVENTS.LICENSE_ACTIVATED,
+      properties: { plan: dto.plan, end_date: endDate.toISOString() },
+    });
+
     return updated;
   }
 
@@ -194,6 +210,13 @@ export class LicensesService {
       plan: updated.plan,
       startDate: newStartDate.toLocaleDateString('fr-FR'),
       endDate: newEndDate.toLocaleDateString('fr-FR'),
+    });
+
+    this.analytics.identify(license.userId, { status: 'ACTIVE', license_plan: updated.plan });
+    this.analytics.capture({
+      distinctId: license.userId,
+      event: ANALYTICS_EVENTS.LICENSE_RENEWED,
+      properties: { plan: updated.plan, end_date: newEndDate.toISOString() },
     });
 
     return updated;

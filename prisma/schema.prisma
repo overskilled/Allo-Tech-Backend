@@ -203,14 +203,15 @@ model User {
   firstName    String
   lastName     String
   dateOfBirth  DateTime?
-  phone        String?
+  phone        String?    @unique
   profileImage String?
   role         UserRole   @default(CLIENT)
   status       UserStatus @default(PENDING_VERIFICATION)
 
   // OAuth
   googleId     String? @unique
-  authProvider String  @default("local") // local, google
+  appleId      String? @unique
+  authProvider String  @default("local") // local, google, apple
 
   // Email verification
   emailVerified      Boolean   @default(false)
@@ -282,7 +283,9 @@ model User {
   kycReviewsPerformed KycSubmission[] @relation("AdminKycReviews")
 
   @@index([email])
+  @@index([phone])
   @@index([googleId])
+  @@index([appleId])
   @@index([role])
   @@index([status])
 }

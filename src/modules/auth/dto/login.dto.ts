@@ -1,15 +1,42 @@
 import { IsEmail, IsString, IsOptional, MinLength } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class LoginDto {
-  @ApiProperty({ example: 'john@example.com' })
+  // Backward-compatible: the web frontend still sends `email`.
+  @ApiPropertyOptional({ example: 'john@example.com' })
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
+
+  // Mobile guest-gate sends `identifier`, which may be an email OR a phone
+  // number. The service resolves which one it is.
+  @ApiPropertyOptional({ example: '+237612345678 (or john@example.com)' })
+  @IsOptional()
+  @IsString()
+  identifier?: string;
 
   @ApiProperty({ example: 'SecurePass123!' })
   @IsString()
   @MinLength(8)
   password: string;
+}
+
+export class AppleAuthDto {
+  @ApiProperty({ description: 'Apple identity token (JWT) from the device' })
+  @IsString()
+  identityToken: string;
+
+  // Apple only returns the name on the FIRST authorization, so the client
+  // forwards it when present so we can populate the new account.
+  @ApiPropertyOptional({ example: 'John' })
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @ApiPropertyOptional({ example: 'Doe' })
+  @IsOptional()
+  @IsString()
+  lastName?: string;
 }
 
 export class GoogleAuthDto {
