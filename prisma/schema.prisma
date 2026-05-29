@@ -198,7 +198,10 @@ enum KycDocumentStatus {
 
 model User {
   id           String     @id @default(uuid())
-  email        String     @unique
+  // Optional — phone-first signups (mobile) have no email until/unless the
+  // user adds one later. Postgres allows multiple NULLs in a UNIQUE column,
+  // so the index still enforces uniqueness for real addresses.
+  email        String?    @unique
   passwordHash String?
   firstName    String
   lastName     String

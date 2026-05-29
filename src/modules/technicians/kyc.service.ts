@@ -31,6 +31,18 @@ const REQUIRED_DOCUMENTS: KycDocumentType[] = [
   KycDocumentType.ID_BACK,
 ];
 
+/**
+ * Internal notification address that gets pinged whenever a technician
+ * submits their KYC dossier for review. Override via KYC_NOTIFICATION_EMAIL
+ * in the backend env (comma-separated for multiple recipients).
+ */
+const KYC_NOTIFICATION_RECIPIENTS = (
+  process.env.KYC_NOTIFICATION_EMAIL || 'ouateedemloic@gmail.com'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const SUBMISSION_INCLUDE = {
   documents: { orderBy: { uploadedAt: 'asc' as const } },
   technician: {
@@ -275,6 +287,72 @@ export class KycService {
       properties: { submission_id: updated.id },
       groups: { technician: updated.technicianId },
     });
+
+    // Notify the internal review team via email. Failure here MUST NOT
+    // roll back the submission — wrap in try/catch and just log.
+    if (KYC_NOTIFICATION_RECIPIENTS.length > 0) {
+      const tech = updated.technician;
+      const fullName =
+        `${tech.firstName ?? ''} ${tech.lastName ?? ''}`.trim() || 'Technicien';
+      const legalName =
+        `${updated.legalFirstName ?? ''} ${updated.legalLastName ?? ''}`.trim();
+      const submittedAt = updated.submittedAt
+        ? new Date(updated.submittedAt).toLocaleString('fr-FR', {
+            timeZone: 'Africa/Douala',
+          })
+        : 'Maintenant';
+      const docList = updated.documents
+        .map((d) => `<li>${d.type} (statut : ${d.status})</li>`)
+        .join('');
+
+      try {
+        await this.mailService.send({
+          to: KYC_NOTIFICATION_RECIPIENTS,
+          subject: `[Allô-Tech] Nouveau KYC à examiner — ${fullName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+              <div style="background: #167bda; padding: 20px; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 20px;">Allô-Tech — Soumission KYC</h1>
+              </div>
+              <div style="padding: 24px; background: #f9fafb;">
+                <p>Un technicien vient de soumettre son dossier KYC pour revue.</p>
+
+                <h3 style="margin-top: 20px; margin-bottom: 6px;">Compte</h3>
+                <table style="border-collapse: collapse; font-size: 14px;">
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Nom (compte)</td><td>${fullName}</td></tr>
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Email</td><td>${tech.email ?? '—'}</td></tr>
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Téléphone</td><td>${tech.phone ?? '—'}</td></tr>
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">User ID</td><td>${tech.id}</td></tr>
+                </table>
+
+                <h3 style="margin-top: 20px; margin-bottom: 6px;">Identité déclarée</h3>
+                <table style="border-collapse: collapse; font-size: 14px;">
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Nom légal</td><td>${legalName || '—'}</td></tr>
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Date de naissance</td><td>${updated.dateOfBirth ? new Date(updated.dateOfBirth).toLocaleDateString('fr-FR') : '—'}</td></tr>
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Nationalité</td><td>${updated.nationality ?? '—'}</td></tr>
+                  <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Numéro pièce</td><td>${updated.idNumber ?? '—'}</td></tr>
+                </table>
+
+                <h3 style="margin-top: 20px; margin-bottom: 6px;">Documents</h3>
+                <ul style="font-size: 14px; padding-left: 18px;">${docList || '<li>Aucun document</li>'}</ul>
+
+                <p style="margin-top: 20px; font-size: 13px; color: #6b7280;">
+                  Soumis le ${submittedAt} (heure de Douala). ID de soumission : <code>${updated.id}</code>.
+                </p>
+              </div>
+              <div style="padding: 12px; text-align: center; font-size: 11px; color: #9ca3af;">
+                Notification automatique — Allô-Tech
+              </div>
+            </div>
+          `,
+          text: `Nouveau KYC à examiner — ${fullName} (${tech.email ?? tech.phone ?? '—'}). Soumis le ${submittedAt}. ID: ${updated.id}.`,
+        });
+      } catch (err) {
+        // Email service is best-effort; we don't want a mail failure to make
+        // the API call fail. Log at the service-level logger if needed.
+        console.error('KYC notification email failed:', (err as Error).message);
+      }
+    }
 
     return updated;
   }

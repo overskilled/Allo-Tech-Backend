@@ -19,6 +19,16 @@ import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { CandidatureStatus } from '@prisma/client';
 import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
+/**
+ * Time-slot windows the client picks on their need. Kept in sync with
+ * mobile/src/screens/client/CreateNeedScreen.tsx timeSlotOptions.
+ */
+const TIME_SLOT_RANGES: Record<string, { start: number; end: number; label: string }> = {
+  morning:   { start: 8,  end: 12, label: 'matin (8h–12h)' },
+  afternoon: { start: 12, end: 17, label: 'après-midi (12h–17h)' },
+  evening:   { start: 17, end: 21, label: 'soir (17h–21h)' },
+};
+
 @Injectable()
 export class CandidaturesService {
   private readonly logger = new Logger(CandidaturesService.name);
@@ -30,6 +40,69 @@ export class CandidaturesService {
     private readonly notificationsService: NotificationsService,
     private readonly analytics: AnalyticsService,
   ) {}
+
+  /**
+   * Validate a technician's proposed date/time against the client's need.
+   * Rules:
+   *  - Must not be in the past (no point proposing a time that already passed).
+   *  - Must not be after the client's `preferredDate` deadline (compared by
+   *    calendar day in Africa/Douala, so the proposal can land on the same
+   *    day at any time within the client's slot).
+   *  - The hour must fall within the client's `preferredTimeSlot` window.
+   * Returns silently when valid; throws BadRequestException otherwise.
+   */
+  private validateProposedDateTime(
+    proposedIso: string | undefined,
+    need: { preferredDate: Date | null; preferredTimeSlot: string | null },
+  ) {
+    if (!proposedIso) return; // proposedDate is optional
+
+    const proposed = new Date(proposedIso);
+    if (Number.isNaN(proposed.getTime())) {
+      throw new BadRequestException('La date proposée est invalide.');
+    }
+
+    const now = new Date();
+    if (proposed.getTime() < now.getTime()) {
+      throw new BadRequestException(
+        'La date proposée ne peut pas être dans le passé.',
+      );
+    }
+
+    if (need.preferredDate) {
+      // Compare on calendar-day so a same-day proposal is allowed at any hour
+      // within the slot. End-of-day of the deadline = upper bound.
+      const deadlineEod = new Date(need.preferredDate);
+      deadlineEod.setHours(23, 59, 59, 999);
+      if (proposed.getTime() > deadlineEod.getTime()) {
+        const human = need.preferredDate.toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        });
+        throw new BadRequestException(
+          `La date proposée ne peut pas être après le ${human} (date souhaitée par le client).`,
+        );
+      }
+    }
+
+    if (need.preferredTimeSlot) {
+      const range = TIME_SLOT_RANGES[need.preferredTimeSlot];
+      if (range) {
+        const hour = proposed.getHours();
+        const minute = proposed.getMinutes();
+        // Allow [start, end) — minute 0 of `end` is already out of slot.
+        const minutesFromMidnight = hour * 60 + minute;
+        const startMin = range.start * 60;
+        const endMin = range.end * 60;
+        if (minutesFromMidnight < startMin || minutesFromMidnight >= endMin) {
+          throw new BadRequestException(
+            `L'heure proposée doit être dans le créneau du client : ${range.label}.`,
+          );
+        }
+      }
+    }
+  }
 
   // ==========================================
   // TECHNICIAN OPERATIONS
@@ -62,6 +135,9 @@ export class CandidaturesService {
     if (need.status !== 'OPEN') {
       throw new BadRequestException('This need is no longer accepting candidatures');
     }
+
+    // Date / time constraints (not past, not after client's deadline, within slot).
+    this.validateProposedDateTime(dto.proposedDate, need);
 
     // Check if already applied
     const existing = await this.prisma.candidature.findUnique({
@@ -173,7 +249,13 @@ export class CandidaturesService {
     });
 
     // ---- Auto-accept if proposed price is within client's budget ----
+    // Only auto-accept when the client explicitly set at least one budget
+    // bound. With no budget on the need, the client expects to compare
+    // candidatures manually — auto-accepting the first tech that proposes
+    // any price would be surprising and reduce the client's optionality.
+    const clientHasBudget = need.budgetMin != null || need.budgetMax != null;
     const withinBudget =
+      clientHasBudget &&
       dto.proposedPrice != null &&
       (need.budgetMax == null || dto.proposedPrice <= Number(need.budgetMax)) &&
       (need.budgetMin == null || dto.proposedPrice >= Number(need.budgetMin));
@@ -284,6 +366,15 @@ export class CandidaturesService {
 
     if (candidature.status !== 'PENDING') {
       throw new BadRequestException('Can only update pending candidatures');
+    }
+
+    // Re-validate the proposed date/time against the (possibly updated) need.
+    if (dto.proposedDate) {
+      const need = await this.prisma.need.findUnique({
+        where: { id: candidature.needId },
+        select: { preferredDate: true, preferredTimeSlot: true },
+      });
+      if (need) this.validateProposedDateTime(dto.proposedDate, need);
     }
 
     return this.prisma.candidature.update({

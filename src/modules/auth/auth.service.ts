@@ -13,6 +13,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { SmsService } from '../sms/sms.service';
 import { RegisterDto, CompleteProfileClientDto, CompleteProfileTechnicianDto } from './dto/register.dto';
 import { LoginDto, GoogleAuthDto, AppleAuthDto } from './dto/login.dto';
 import { ForgotPasswordDto, VerifyResetOtpDto, ResetPasswordDto, ChangePasswordDto } from './dto/password.dto';
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly smsService: SmsService,
     private readonly analytics: AnalyticsService,
   ) {
     this.googleClient = new OAuth2Client(
@@ -75,10 +77,9 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const phoneOnly = !hasEmail; // mobile 1-step signup
 
-    // email is @unique & required → synthesize a placeholder for phone signups.
-    const email = hasEmail
-      ? dto.email!
-      : `${normalizedPhone}@phone.allotech.local`;
+    // Phone-only signups have no email — store NULL rather than inventing a
+    // placeholder. `User.email` is `String?` since the 20260528 migration.
+    const email = hasEmail ? dto.email! : null;
     const emailVerifyToken = hasEmail ? uuidv4() : undefined;
 
     const user = await this.prisma.user.create({
@@ -363,11 +364,12 @@ export class AuthService {
     }
 
     if (!user) {
-      // Apple may withhold the real email (private relay) or omit it entirely.
-      const fallbackEmail = email ?? `apple_${sub.replace(/[^a-zA-Z0-9]/g, '')}@privaterelay.appleid.com`;
+      // Apple may withhold the real email (the user picked "Hide my email"
+      // and didn't share even the private-relay forwarder). When that
+      // happens, we store NULL rather than fabricating one.
       user = await this.prisma.user.create({
         data: {
-          email: fallbackEmail,
+          email: email ?? null,
           firstName: dto.firstName || 'Utilisateur',
           lastName: dto.lastName || '',
           appleId: sub,
@@ -657,15 +659,30 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
+  /**
+   * Resolve a free-form identifier (email OR E.164 phone) to a User record.
+   * Phone identifiers are normalised by stripping spaces/dashes/parens; emails
+   * are lowercased. Returns null if not found.
+   */
+  private async findUserByIdentifier(identifier: string) {
+    const trimmed = identifier.trim();
+    const isEmail = trimmed.includes('@');
+    if (isEmail) {
+      return this.prisma.user.findUnique({ where: { email: trimmed.toLowerCase() } });
+    }
+    const normalizedPhone = trimmed.replace(/[\s\-()]/g, '');
+    return this.prisma.user.findUnique({ where: { phone: normalizedPhone } });
+  }
+
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const isEmail = dto.identifier.includes('@');
+    const user = await this.findUserByIdentifier(dto.identifier);
 
-    // Always return the same message to avoid email enumeration
+    // Always return the same message to avoid email/phone enumeration.
     const genericMsg = 'Si ce compte existe, un code de vérification a été envoyé';
-
     if (!user) return { message: genericMsg };
 
-    // Generate a 6-digit OTP
+    // Generate a 6-digit OTP.
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
 
@@ -680,17 +697,38 @@ export class AuthService {
       },
     });
 
-    await this.mailService.sendPasswordResetOtp(
-      user.email,
-      user.firstName || 'Utilisateur',
-      otp,
-    );
+    // Deliver the OTP via the channel the user asked for. We avoid silently
+    // switching channels (e.g. asking for an SMS but emailing instead) so
+    // that the front-end's "code envoyé au …" hint stays truthful.
+    try {
+      if (isEmail) {
+        if (!user.email) {
+          this.logger.warn(`forgotPassword: user ${user.id} has no email; cannot deliver OTP`);
+          return { message: genericMsg };
+        }
+        await this.mailService.sendPasswordResetOtp(
+          user.email,
+          user.firstName || 'Utilisateur',
+          otp,
+        );
+      } else {
+        if (!user.phone) {
+          this.logger.warn(`forgotPassword: user ${user.id} has no phone; cannot deliver SMS OTP`);
+          return { message: genericMsg };
+        }
+        await this.smsService.sendPasswordResetOtp(user.phone, otp);
+      }
+    } catch (err) {
+      // Don't expose delivery failures to clients (still return the generic
+      // message), but log so they're findable in monitoring.
+      this.logger.error(`forgotPassword delivery failed for user ${user.id}: ${(err as Error).message}`);
+    }
 
     return { message: genericMsg };
   }
 
   async verifyResetOtp(dto: VerifyResetOtpDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const user = await this.findUserByIdentifier(dto.identifier);
 
     const invalid = () => new BadRequestException('Code invalide ou expiré');
 

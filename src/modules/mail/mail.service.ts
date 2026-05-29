@@ -489,17 +489,27 @@ export class MailService {
       return { success: false, error: 'Mail service disabled' };
     }
 
+    // Tolerate callers that pass a null/empty recipient (e.g. phone-only
+    // signups whose `User.email` is NULL since the 20260528 migration).
+    // Skipping is the correct behaviour — there's no inbox to deliver to.
+    const recipients = (Array.isArray(options.to) ? options.to : [options.to])
+      .filter((addr): addr is string => typeof addr === 'string' && addr.length > 0);
+    if (recipients.length === 0) {
+      this.logger.warn(`Mail skipped (no recipient): ${options.subject}`);
+      return { success: false, error: 'No recipient' };
+    }
+
     try {
       const result = await this.resend.emails.send({
         from: this.fromEmail,
-        to: Array.isArray(options.to) ? options.to : [options.to],
+        to: recipients,
         subject: options.subject,
         html: options.html,
         text: options.text,
         reply_to: options.replyTo,
       });
 
-      this.logger.log(`Email sent: ${options.subject} to ${options.to}`);
+      this.logger.log(`Email sent: ${options.subject} to ${recipients.join(', ')}`);
       return { success: true, id: result.data?.id };
     } catch (error) {
       this.logger.error(`Failed to send email: ${(error as any).message}`, (error as any).stack);

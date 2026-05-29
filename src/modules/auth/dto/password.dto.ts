@@ -1,16 +1,25 @@
-import { IsEmail, IsString, MinLength, Matches, Length } from 'class-validator';
+import { IsString, MinLength, Matches, Length } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ForgotPasswordDto {
-  @ApiProperty({ example: 'john@example.com' })
-  @IsEmail()
-  email: string;
+  @ApiProperty({
+    description:
+      'Account identifier — an email address OR a phone number in E.164 format (e.g. "+237680000000"). The OTP is delivered by email or SMS accordingly.',
+    example: '+237680000000',
+  })
+  @IsString()
+  @MinLength(3)
+  identifier: string;
 }
 
 export class VerifyResetOtpDto {
-  @ApiProperty({ example: 'john@example.com' })
-  @IsEmail()
-  email: string;
+  @ApiProperty({
+    description: 'Same identifier used in /auth/forgot-password (email or E.164 phone).',
+    example: '+237680000000',
+  })
+  @IsString()
+  @MinLength(3)
+  identifier: string;
 
   @ApiProperty({ example: '482951' })
   @IsString()
