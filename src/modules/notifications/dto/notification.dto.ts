@@ -59,6 +59,42 @@ export class BulkNotificationDto {
   data?: Record<string, any>;
 }
 
+/**
+ * Audience for an admin broadcast. `all` targets every user; otherwise
+ * targets a single role.
+ */
+export enum BroadcastAudience {
+  ALL = 'all',
+  CLIENT = 'CLIENT',
+  TECHNICIAN = 'TECHNICIAN',
+  AGENT = 'AGENT',
+  ADMIN = 'ADMIN',
+}
+
+export class BroadcastNotificationDto {
+  @ApiProperty({ enum: BroadcastAudience, description: 'Target audience' })
+  @IsEnum(BroadcastAudience)
+  audience: BroadcastAudience;
+
+  @ApiProperty({ enum: NotificationType, description: 'Notification type' })
+  @IsEnum(NotificationType)
+  type: NotificationType;
+
+  @ApiProperty({ description: 'Notification title' })
+  @IsString()
+  @MaxLength(200)
+  title: string;
+
+  @ApiProperty({ description: 'Notification body' })
+  @IsString()
+  @MaxLength(500)
+  body: string;
+
+  @ApiPropertyOptional({ description: 'Additional data as JSON object' })
+  @IsOptional()
+  data?: Record<string, any>;
+}
+
 export class UpdatePreferencesDto {
   @ApiPropertyOptional({ description: 'Enable push notifications' })
   @IsOptional()

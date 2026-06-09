@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsBoolean, IsNumber } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
@@ -80,4 +80,27 @@ export class QueryTechniciansDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'Minimum average rating (0-5)' })
   @IsOptional()
   minRating?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Latitude of the search centre. When provided with longitude, results are limited to a bounding box of ~radiusKm around this point ("near me").',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsNumber()
+  latitude?: number;
+
+  @ApiPropertyOptional({ description: 'Longitude of the search centre (see latitude).' })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsNumber()
+  longitude?: number;
+
+  @ApiPropertyOptional({
+    description: 'Search radius in km around latitude/longitude. Defaults to 10km when a centre is given.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsNumber()
+  radiusKm?: number;
 }

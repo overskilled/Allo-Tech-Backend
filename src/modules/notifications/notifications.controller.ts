@@ -18,8 +18,15 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
-import { QueryNotificationsDto, RegisterDeviceDto } from './dto/notification.dto';
+import {
+  QueryNotificationsDto,
+  RegisterDeviceDto,
+  BroadcastNotificationDto,
+  BroadcastAudience,
+} from './dto/notification.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('Notifications')
@@ -95,6 +102,29 @@ export class NotificationsController {
   @ApiResponse({ status: 200, description: 'All notifications deleted' })
   async clearAllNotifications(@CurrentUser('id') userId: string) {
     return this.notificationsService.clearAllNotifications(userId);
+  }
+
+  // ==========================================
+  // ADMIN BROADCAST ENDPOINTS
+  // ==========================================
+
+  @Get('broadcast/audience')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Preview broadcast audience size (admin)' })
+  @ApiResponse({ status: 200, description: 'Recipient and device counts' })
+  async getBroadcastAudience(@Query('audience') audience: BroadcastAudience) {
+    return this.notificationsService.getBroadcastAudienceCount(audience);
+  }
+
+  @Post('broadcast')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Broadcast a notification to an audience (admin)' })
+  @ApiResponse({ status: 200, description: 'Broadcast sent' })
+  async broadcast(@Body() dto: BroadcastNotificationDto) {
+    return this.notificationsService.broadcastNotification(dto);
   }
 
   // ==========================================

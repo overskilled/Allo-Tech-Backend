@@ -578,10 +578,14 @@ export class CandidaturesService {
 
     const newStatus: CandidatureStatus = dto.response === 'ACCEPTED' ? 'ACCEPTED' : 'REJECTED';
 
-    // Require date and time when accepting
-    if (newStatus === 'ACCEPTED' && (!dto.proposedDate || !dto.proposedTime)) {
-      throw new BadRequestException('Date et heure requises pour accepter une candidature');
-    }
+    // No date required from the client. The handshake is bounded:
+    //   1) Client picks date/time at need creation.
+    //   2) Technician approves it (proposedDate = client's) OR counter-proposes
+    //      a different one — exactly once, at postulation.
+    //   3) Client accepts/rejects this candidature. Accepting = mission
+    //      scheduled at the candidature's proposedDate. No third pick, no
+    //      tech confirmation step.
+    // Acceptance therefore needs nothing more than `response: ACCEPTED`.
 
     // If accepting, reject all other pending candidatures for this need
     if (newStatus === 'ACCEPTED') {
@@ -623,14 +627,14 @@ export class CandidaturesService {
       },
     });
 
-    // Auto-create mission when candidature is accepted
+    // Auto-create mission when candidature is accepted. We deliberately do
+    // NOT forward dto.proposedDate / dto.proposedTime — the mission service
+    // falls back to candidature.proposedDate (the tech's commitment, which
+    // the client just accepted) and the mission goes straight to SCHEDULED.
     let mission = null;
     if (newStatus === 'ACCEPTED') {
       try {
-        mission = await this.missionsService.createMissionFromCandidature(candidatureId, {
-          proposedDate: dto.proposedDate!,
-          proposedTime: dto.proposedTime!,
-        });
+        mission = await this.missionsService.createMissionFromCandidature(candidatureId);
         this.logger.log(
           `Mission ${mission.id} auto-created from candidature ${candidatureId}`,
         );
@@ -647,12 +651,29 @@ export class CandidaturesService {
     const clientUser = await this.prisma.user.findUnique({ where: { id: clientId }, select: { firstName: true, lastName: true } });
     if (techUser?.email) {
       if (newStatus === 'ACCEPTED') {
+        // Derive date/time the same way the mission service does so the
+        // email matches the actual mission schedule.
+        const scheduled = candidature.proposedDate ? new Date(candidature.proposedDate) : null;
+        const dateStr = scheduled
+          ? scheduled.toLocaleDateString('fr-FR', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })
+          : '';
+        const timeStr = scheduled
+          ? scheduled.toLocaleTimeString('fr-FR', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            })
+          : '';
         await this.mailService.sendCandidatureAccepted(techUser.email, {
           technicianName: candidature.technician.firstName,
           needTitle: candidature.need.title,
           clientName: `${clientUser?.firstName || ''} ${clientUser?.lastName || ''}`.trim(),
-          date: dto.proposedDate,
-          time: dto.proposedTime,
+          date: dateStr,
+          time: timeStr,
         });
       } else {
         await this.mailService.sendCandidatureRejected(techUser.email, {

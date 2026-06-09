@@ -705,10 +705,41 @@ export class UsersService {
     const search = query.search?.trim();
     const city = query.city?.trim();
 
+    // ── 0. "Near me" bounding box ──────────────────────────────────────────
+    // When the caller passes a centre (latitude/longitude), restrict results to
+    // a bounding box of ~radiusKm (default 10km). A box (not a true circle) is
+    // used so this works on plain Postgres without PostGIS; close enough for a
+    // "technicians near you" map.
+    let geoBox:
+      | { latMin: number; latMax: number; lngMin: number; lngMax: number }
+      | null = null;
+    if (
+      typeof query.latitude === 'number' &&
+      !Number.isNaN(query.latitude) &&
+      typeof query.longitude === 'number' &&
+      !Number.isNaN(query.longitude)
+    ) {
+      const radiusKm = query.radiusKm && query.radiusKm > 0 ? query.radiusKm : 10;
+      const latDelta = radiusKm / 111; // ~111km per degree of latitude
+      const cosLat = Math.cos((query.latitude * Math.PI) / 180);
+      const lngDelta =
+        radiusKm / (111 * (Math.abs(cosLat) < 0.01 ? 0.01 : Math.abs(cosLat)));
+      geoBox = {
+        latMin: query.latitude - latDelta,
+        latMax: query.latitude + latDelta,
+        lngMin: query.longitude - lngDelta,
+        lngMax: query.longitude + lngDelta,
+      };
+    }
+
     // ── 1. Build WHERE for registered technicians ──────────────────────────
     const regWhere: any = {
       user: { role: 'TECHNICIAN', status: { not: 'SUSPENDED' } },
     };
+    if (geoBox) {
+      regWhere.latitude = { gte: geoBox.latMin, lte: geoBox.latMax };
+      regWhere.longitude = { gte: geoBox.lngMin, lte: geoBox.lngMax };
+    }
     if (city) regWhere.city = { contains: city, mode: 'insensitive' };
     if (query.isVerified !== undefined) regWhere.isVerified = query.isVerified;
     if (query.isAvailable !== undefined) regWhere.isAvailable = query.isAvailable;
@@ -740,6 +771,17 @@ export class UsersService {
       technicianUserId: null,
       status: { not: 'REJECTED' },
     };
+    if (geoBox) {
+      // Onboardings carry no coordinates of their own; geo lives on the linked
+      // field visit. Requiring a field visit inside the box also drops any
+      // onboarding that can't be placed on the map anyway.
+      unregWhere.fieldVisit = {
+        is: {
+          latitude: { gte: geoBox.latMin, lte: geoBox.latMax },
+          longitude: { gte: geoBox.lngMin, lte: geoBox.lngMax },
+        },
+      };
+    }
     if (city) unregWhere.city = { contains: city, mode: 'insensitive' };
     // availability / rating / verified filters don't apply to raw onboardings
     if (search) {

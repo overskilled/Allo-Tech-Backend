@@ -10,12 +10,14 @@ import Expo, { ExpoPushMessage } from 'expo-server-sdk';
 import {
   CreateNotificationDto,
   BulkNotificationDto,
+  BroadcastNotificationDto,
+  BroadcastAudience,
   UpdatePreferencesDto,
   RegisterDeviceDto,
   QueryNotificationsDto,
 } from './dto/notification.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, UserRole } from '@prisma/client';
 
 // Notification templates for consistent messaging
 const NOTIFICATION_TEMPLATES = {
@@ -234,6 +236,99 @@ export class NotificationsService {
     return { created: notifications.count };
   }
 
+  // ==========================================
+  // ADMIN BROADCAST
+  // ==========================================
+
+  /** Build the Prisma user `where` clause for a broadcast audience. */
+  private broadcastAudienceWhere(audience: BroadcastAudience) {
+    return audience === BroadcastAudience.ALL
+      ? {}
+      : { role: audience as unknown as UserRole };
+  }
+
+  /**
+   * Count how many users and how many active devices a broadcast would reach.
+   * Used by the admin UI to preview an audience before sending.
+   */
+  async getBroadcastAudienceCount(audience: BroadcastAudience) {
+    const where = this.broadcastAudienceWhere(audience);
+
+    const [recipients, users] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({ where, select: { id: true } }),
+    ]);
+
+    const userIds = users.map((u) => u.id);
+    const devices =
+      userIds.length === 0
+        ? 0
+        : await this.prisma.deviceToken.count({
+            where: { userId: { in: userIds }, isActive: true },
+          });
+
+    return { audience, recipients, devices };
+  }
+
+  /**
+   * Send a notification to every user in an audience: persists an in-app
+   * notification per user, emits realtime events, and pushes to all of their
+   * active devices in a single batched dispatch.
+   */
+  async broadcastNotification(dto: BroadcastNotificationDto) {
+    const where = this.broadcastAudienceWhere(dto.audience);
+    const users = await this.prisma.user.findMany({
+      where,
+      select: { id: true },
+    });
+    const userIds = users.map((u) => u.id);
+
+    if (userIds.length === 0) {
+      return { recipients: 0, devices: 0 };
+    }
+
+    const dataJson = dto.data ? JSON.stringify(dto.data) : null;
+
+    // 1. Persist in-app notifications
+    const created = await this.prisma.notification.createMany({
+      data: userIds.map((userId) => ({
+        userId,
+        type: dto.type,
+        title: dto.title,
+        body: dto.body,
+        data: dataJson,
+      })),
+    });
+
+    // 2. Realtime fan-out (best-effort; WebSocket only reaches online users)
+    for (const userId of userIds) {
+      this.sendRealtimeNotification(userId, {
+        type: dto.type,
+        title: dto.title,
+        body: dto.body,
+        data: dto.data,
+      });
+    }
+
+    // 3. Push: gather every active device token in one query, dispatch batched
+    const deviceTokens = await this.prisma.deviceToken.findMany({
+      where: { userId: { in: userIds }, isActive: true },
+      select: { token: true },
+    });
+
+    await this.dispatchPushToTokens(
+      deviceTokens.map((t) => t.token),
+      { title: dto.title, body: dto.body, data: dto.data },
+      `broadcast:${dto.audience}`,
+    );
+
+    this.logger.log(
+      `Broadcast (${dto.audience}): ${created.count} notifications, ${deviceTokens.length} device(s)`,
+    );
+
+    return { recipients: created.count, devices: deviceTokens.length };
+  }
+
   async getNotifications(userId: string, query: QueryNotificationsDto) {
     const where: any = { userId };
 
@@ -394,10 +489,29 @@ export class NotificationsService {
 
     if (deviceTokens.length === 0) return;
 
+    await this.dispatchPushToTokens(
+      deviceTokens.map((t) => t.token),
+      payload,
+      `user ${userId}`,
+    );
+  }
+
+  /**
+   * Low-level push dispatch shared by per-user sends and admin broadcasts.
+   * Splits Expo vs native-FCM tokens, sends in chunks, and deactivates any
+   * tokens the providers report as unregistered.
+   */
+  private async dispatchPushToTokens(
+    tokens: string[],
+    payload: { title: string; body: string; data?: any },
+    logContext: string,
+  ) {
+    if (tokens.length === 0) return;
+
     const expoTokens: string[] = [];
     const fcmTokens: string[] = [];
 
-    for (const { token } of deviceTokens) {
+    for (const token of tokens) {
       if (Expo.isExpoPushToken(token)) {
         expoTokens.push(token);
       } else {
@@ -443,7 +557,7 @@ export class NotificationsService {
         });
       }
 
-      this.logger.debug(`Expo push for user ${userId}: sent to ${expoTokens.length} token(s)`);
+      this.logger.debug(`Expo push for ${logContext}: sent to ${expoTokens.length} token(s)`);
     }
 
     // ── FCM push (native/production builds) ────────────────────────────────
@@ -462,7 +576,7 @@ export class NotificationsService {
         );
 
       this.logger.debug(
-        `FCM push for user ${userId}: ${successCount} success, ${failureCount} failed`,
+        `FCM push for ${logContext}: ${successCount} success, ${failureCount} failed`,
       );
 
       if (failedTokens.length > 0) {

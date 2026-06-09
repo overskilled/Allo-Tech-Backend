@@ -126,7 +126,15 @@ export class MissionsService {
 
   async createMissionFromCandidature(
     candidatureId: string,
-    options?: { proposedDate: string; proposedTime: string },
+    /**
+     * Optional override. When omitted, the mission uses the technician's
+     * `candidature.proposedDate` directly — the tech committed to it at
+     * postulation and the client accepted that proposal, so no further
+     * confirmation is needed. Pass an override only when the client
+     * counter-proposed at acceptance time (currently unused: the UI removed
+     * the "Planifier la mission" sheet to keep the flow bounded).
+     */
+    options?: { proposedDate?: string; proposedTime?: string },
   ) {
     const candidature = await this.prisma.candidature.findUnique({
       where: { id: candidatureId },
@@ -157,14 +165,41 @@ export class MissionsService {
       return existing;
     }
 
+    // Resolve the scheduled date: prefer the explicit override (rarely used
+    // — only when the client counter-proposed), otherwise fall back to the
+    // technician's `candidature.proposedDate` which they committed to when
+    // they postulated and the client just accepted.
+    const scheduledDate =
+      options?.proposedDate
+        ? new Date(options.proposedDate)
+        : candidature.proposedDate ?? null;
+
+    // Extract HH:MM from candidature.proposedDate (which is a full DateTime)
+    // when no explicit override is provided.
+    const scheduledTime =
+      options?.proposedTime ??
+      (candidature.proposedDate
+        ? new Date(candidature.proposedDate).toLocaleTimeString('fr-FR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          })
+        : null);
+
+    // When the date came from the tech's own proposal (no client override),
+    // the mission is already agreed — go straight to SCHEDULED. The legacy
+    // "tech must confirm the client's planning" step only applies when an
+    // override was passed (currently unused; kept for safety).
+    const initialStatus = options?.proposedDate ? 'PENDING' : 'SCHEDULED';
+
     const mission = await this.prisma.mission.create({
       data: {
         needId: candidature.needId,
         clientId: candidature.need.clientId,
         technicianId: candidature.technicianId,
-        status: 'PENDING',
-        scheduledDate: options?.proposedDate ? new Date(options.proposedDate) : null,
-        scheduledTime: options?.proposedTime || null,
+        status: initialStatus,
+        scheduledDate,
+        scheduledTime,
         address: candidature.need.address,
         latitude: candidature.need.latitude,
         longitude: candidature.need.longitude,
