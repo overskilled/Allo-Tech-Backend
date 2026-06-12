@@ -525,11 +525,21 @@ export class AuthService {
       throw new BadRequestException('Cannot complete technician profile for this account type');
     }
 
-    // Update user phone and avatar
+    // The phone set at registration is the user's login credential. Never
+    // overwrite it here — doing so previously let a slightly different number
+    // entered during profile setup replace the real one, after which phone
+    // login could no longer find the account ("Invalid credentials"). Only set
+    // the phone when the account has none yet (e.g. email/web signups), and
+    // normalize it the same way registration does so lookups stay consistent.
+    const phoneUpdate =
+      !user.phone && dto.phone
+        ? { phone: dto.phone.replace(/[\s-]/g, '') }
+        : {};
+
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        phone: dto.phone,
+        ...phoneUpdate,
         role: UserRole.TECHNICIAN,
         status: UserStatus.TRIAL,
         ...(dto.profileImage && { profileImage: dto.profileImage }),
