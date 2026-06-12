@@ -72,6 +72,13 @@ export class UpdateUserStatusDto {
   status?: UserFilterStatus;
 }
 
+export class UpdateUserPhoneDto {
+  @ApiPropertyOptional({ description: 'New phone number (E.164, e.g. +237...)' })
+  @IsString()
+  @MaxLength(20)
+  phone: string;
+}
+
 export class VerifyTechnicianDto {
   @ApiPropertyOptional({ description: 'Verification notes' })
   @IsOptional()

@@ -214,6 +214,7 @@ export class AdminService {
         { firstName: { contains: query.search } },
         { lastName: { contains: query.search } },
         { email: { contains: query.search } },
+        { phone: { contains: query.search.replace(/[\s-]/g, '') } },
       ];
     }
 
@@ -320,6 +321,48 @@ export class AdminService {
         firstName: true,
         lastName: true,
         status: true,
+      },
+    });
+  }
+
+  /**
+   * Correct a user's phone number. Used to repair accounts whose login phone
+   * (the credential for phone-based login) was set to the wrong value — e.g.
+   * technicians whose number diverged during profile setup. Normalizes the
+   * input the same way registration/login do, and guards against assigning a
+   * number already in use by another account.
+   */
+  async updateUserPhone(userId: string, rawPhone: string) {
+    const phone = rawPhone.replace(/[\s-]/g, '');
+    if (!phone) {
+      throw new BadRequestException('Phone number is required');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const conflict = await this.prisma.user.findFirst({
+      where: { phone, NOT: { id: userId } },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new BadRequestException(
+        'This phone number is already used by another account',
+      );
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { phone },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
       },
     });
   }

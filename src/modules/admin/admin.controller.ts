@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Put,
+  Patch,
   Post,
   Delete,
   Body,
@@ -22,6 +23,7 @@ import { AdminService } from './admin.service';
 import {
   QueryUsersDto,
   UpdateUserStatusDto,
+  UpdateUserPhoneDto,
   VerifyTechnicianDto,
   SuspendUserDto,
   DateRangeDto,
@@ -96,6 +98,13 @@ export class AdminController {
   @ApiResponse({ status: 200, description: 'User status updated' })
   updateUserStatus(@Param('id') id: string, @Body() dto: UpdateUserStatusDto) {
     return this.adminService.updateUserStatus(id, dto);
+  }
+
+  @Patch('users/:id/phone')
+  @ApiOperation({ summary: 'Correct a user phone number (login credential)' })
+  @ApiResponse({ status: 200, description: 'User phone updated' })
+  updateUserPhone(@Param('id') id: string, @Body() dto: UpdateUserPhoneDto) {
+    return this.adminService.updateUserPhone(id, dto.phone);
   }
 
   @Post('users/:id/suspend')
