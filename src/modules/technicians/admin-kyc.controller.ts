@@ -54,6 +54,16 @@ export class AdminKycController {
     return this.kycService.getPendingTechnicians(query);
   }
 
+  @Get('pending-technicians/summary')
+  @ApiOperation({
+    summary:
+      'Aggregated technician counts per KYC bucket (pending review, submitted, no submission, verified, …) for the admin dashboard tiles.',
+  })
+  @ApiResponse({ status: 200 })
+  getPendingTechniciansSummary(@Query('search') search?: string) {
+    return this.kycService.getPendingTechniciansSummary(search);
+  }
+
   @Post('technicians/:userId/remind')
   @ApiOperation({
     summary: 'Send a KYC reminder email + in-app notification to a technician',

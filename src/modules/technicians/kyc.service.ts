@@ -413,31 +413,23 @@ export class KycService {
   async getPendingTechnicians(
     query: QueryKycQueueDto & { verified?: 'all' | 'verified' | 'unverified' },
   ) {
-    const verified = query.verified ?? 'unverified';
-    const where: Prisma.UserWhereInput = { role: 'TECHNICIAN' };
+    const where = this.buildTechnicianWhere(query);
 
-    if (verified === 'unverified') {
-      where.technicianProfile = { isVerified: false };
-    } else if (verified === 'verified') {
-      where.technicianProfile = { isVerified: true };
-    } else {
-      where.technicianProfile = { isNot: null };
-    }
-
-    if (query.search) {
-      where.OR = [
-        { firstName: { contains: query.search, mode: 'insensitive' } },
-        { lastName: { contains: query.search, mode: 'insensitive' } },
-        { email: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
+    // Sorting. `submittedAt` lives on the related kycSubmission, so order by
+    // the relation; everything else falls back to the user's createdAt.
+    // Nulls are pushed last so dossiers with a real date surface first.
+    const order = query.sortOrder ?? 'desc';
+    const orderBy: Prisma.UserOrderByWithRelationInput =
+      query.sortBy === 'submittedAt'
+        ? { kycSubmission: { submittedAt: order } }
+        : { createdAt: query.sortBy === 'createdAt' ? order : 'asc' };
 
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
         skip: query.skip,
         take: query.take,
-        orderBy: { createdAt: 'asc' },
+        orderBy,
         select: {
           id: true,
           firstName: true,
@@ -458,6 +450,127 @@ export class KycService {
     ]);
 
     return createPaginatedResult(users, total, query);
+  }
+
+  /**
+   * Aggregated counts per KYC bucket for the admin dashboard tiles. Honours the
+   * same `search` term as the listing so the tiles stay in sync with the table.
+   * Returns global totals (not just the current page).
+   */
+  async getPendingTechniciansSummary(search?: string) {
+    const base: Prisma.UserWhereInput = {
+      role: 'TECHNICIAN',
+      technicianProfile: { isNot: null },
+    };
+    if (search) {
+      base.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const withStatus = (statuses: KycStatus[]): Prisma.UserWhereInput => ({
+      ...base,
+      kycSubmission: { is: { status: { in: statuses } } },
+    });
+
+    const [
+      pendingReview,
+      submitted,
+      underReview,
+      resubmission,
+      rejected,
+      noSubmission,
+      verified,
+      total,
+    ] = await Promise.all([
+      this.prisma.user.count({
+        where: withStatus([
+          KycStatus.SUBMITTED,
+          KycStatus.UNDER_REVIEW,
+          KycStatus.RESUBMISSION_REQUIRED,
+        ]),
+      }),
+      this.prisma.user.count({ where: withStatus([KycStatus.SUBMITTED]) }),
+      this.prisma.user.count({ where: withStatus([KycStatus.UNDER_REVIEW]) }),
+      this.prisma.user.count({
+        where: withStatus([KycStatus.RESUBMISSION_REQUIRED]),
+      }),
+      this.prisma.user.count({ where: withStatus([KycStatus.REJECTED]) }),
+      this.prisma.user.count({
+        where: { ...base, kycSubmission: { is: null } },
+      }),
+      this.prisma.user.count({
+        where: { ...base, technicianProfile: { isVerified: true } },
+      }),
+      this.prisma.user.count({ where: base }),
+    ]);
+
+    return {
+      pendingReview,
+      submitted,
+      underReview,
+      resubmission,
+      rejected,
+      noSubmission,
+      verified,
+      total,
+    };
+  }
+
+  /**
+   * Builds the technician listing filter from `verified` + `status`.
+   *
+   * `verified`: 'unverified' (default) | 'verified' | 'all'.
+   * `status`: a KycStatus, the special group 'PENDING_REVIEW'
+   *   (SUBMITTED + UNDER_REVIEW + RESUBMISSION_REQUIRED), or 'NO_SUBMISSION'
+   *   (technicians who never started a dossier). When omitted, only `verified`
+   *   applies.
+   */
+  private buildTechnicianWhere(
+    query: QueryKycQueueDto & { verified?: 'all' | 'verified' | 'unverified' },
+  ): Prisma.UserWhereInput {
+    const verified = query.verified ?? 'unverified';
+    const where: Prisma.UserWhereInput = { role: 'TECHNICIAN' };
+
+    if (verified === 'unverified') {
+      where.technicianProfile = { isVerified: false };
+    } else if (verified === 'verified') {
+      where.technicianProfile = { isVerified: true };
+    } else {
+      where.technicianProfile = { isNot: null };
+    }
+
+    if (query.status) {
+      if (query.status === 'NO_SUBMISSION') {
+        where.kycSubmission = { is: null };
+      } else if (query.status === 'PENDING_REVIEW') {
+        where.kycSubmission = {
+          is: {
+            status: {
+              in: [
+                KycStatus.SUBMITTED,
+                KycStatus.UNDER_REVIEW,
+                KycStatus.RESUBMISSION_REQUIRED,
+              ],
+            },
+          },
+        };
+      } else {
+        where.kycSubmission = { is: { status: query.status as KycStatus } };
+      }
+    }
+
+    if (query.search) {
+      where.OR = [
+        { firstName: { contains: query.search, mode: 'insensitive' } },
+        { lastName: { contains: query.search, mode: 'insensitive' } },
+        { email: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    return where;
   }
 
   /**
