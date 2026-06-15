@@ -103,8 +103,12 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const port = configService.get<number>('PORT', 3000);
-  await app.listen(port);
+  // Bind to 0.0.0.0 (all interfaces) so other devices on the network — e.g. the
+  // mobile app on a phone — can reach the dev server via the machine's IP, not
+  // just localhost.
+  await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: http://localhost:${port}`);
+  logger.log(`Reachable on your network at: http://0.0.0.0:${port} (use this machine's IP from other devices)`);
   logger.log(`Environment: ${configService.get('NODE_ENV', 'development')}`);
 }
 
