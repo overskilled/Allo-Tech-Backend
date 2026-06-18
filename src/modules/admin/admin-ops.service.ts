@@ -44,11 +44,10 @@ export class AdminOpsService {
     private readonly analytics: AnalyticsService,
   ) {}
 
-  private staleDate(days: number): Date {
-    const d = new Date();
-    d.setDate(d.getDate() - days);
-    return d;
-  }
+  /** Mission statuses where escrow funds are held but not yet released/refunded. */
+  private static readonly ESCROW_ACTIVE: Prisma.MissionWhereInput['status'] = {
+    in: ['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'PENDING_VALIDATION', 'DISPUTED'],
+  };
 
   /** First (and currently only) writer of ActivityLog. Fire-and-forget safe. */
   private async logAdminAction(p: {
@@ -123,9 +122,7 @@ export class AdminOpsService {
       };
     }
     if (query.issuesOnly) {
-      const stale = this.staleDate(3);
       where.status = 'OPEN';
-      where.createdAt = { lt: stale };
       where.candidatures = { none: {} };
     }
 
@@ -274,8 +271,12 @@ export class AdminOpsService {
         { technician: { lastName: { contains: query.search } } },
       ];
     }
+    if (query.escrowOnly) {
+      where.clientPaidAt = { not: null };
+      where.status = AdminOpsService.ESCROW_ACTIVE;
+    }
     if (query.issuesOnly) {
-      where.OR = this.missionIssuesOr(this.staleDate(3));
+      where.OR = this.missionIssuesOr();
     }
 
     const orderBy = (
@@ -701,10 +702,9 @@ export class AdminOpsService {
   // HEALTH / ISSUES SUMMARY
   // ==========================================
 
-  async getOpsHealth(query: HealthQueryDto) {
-    const staleDays = query.staleDays ?? 3;
-    const stale = this.staleDate(staleDays);
-
+  async getOpsHealth(_query?: HealthQueryDto) {
+    // Current-state operational counts (no aging window) — these are the live
+    // worklist an admin acts on, so they must reflect reality, not a stale subset.
     const [
       stuckInProgress,
       stuckPendingValidation,
@@ -713,22 +713,20 @@ export class AdminOpsService {
       paidNotAdvancing,
       escrowHeldNoMovement,
     ] = await Promise.all([
-      this.prisma.mission.count({ where: { status: 'IN_PROGRESS', updatedAt: { lt: stale } } }),
-      this.prisma.mission.count({ where: { status: 'PENDING_VALIDATION', updatedAt: { lt: stale } } }),
+      this.prisma.mission.count({ where: { status: 'IN_PROGRESS' } }),
+      this.prisma.mission.count({ where: { status: 'PENDING_VALIDATION' } }),
       this.prisma.mission.count({ where: { status: 'DISPUTED' } }),
-      this.prisma.need.count({
-        where: { status: 'OPEN', createdAt: { lt: stale }, candidatures: { none: {} } },
-      }),
+      this.prisma.need.count({ where: { status: 'OPEN', candidatures: { none: {} } } }),
       this.prisma.quotation.count({
-        where: { status: 'PAID', primaryMission: { is: { status: { in: ['PENDING', 'SCHEDULED'] } } }, updatedAt: { lt: stale } },
+        where: { status: 'PAID', primaryMission: { is: { status: { in: ['PENDING', 'SCHEDULED'] } } } },
       }),
       this.prisma.mission.count({
-        where: { clientPaidAt: { lt: stale }, status: { in: ['PENDING', 'SCHEDULED', 'IN_PROGRESS'] } },
+        where: { clientPaidAt: { not: null }, status: AdminOpsService.ESCROW_ACTIVE },
       }),
     ]);
 
     return {
-      staleDays,
+      staleDays: 0,
       stuckInProgress,
       stuckPendingValidation,
       disputed,
@@ -742,13 +740,13 @@ export class AdminOpsService {
   // INTERNAL HELPERS
   // ==========================================
 
-  /** OR predicates that define an "at-risk" mission (3-day stale window). */
-  private missionIssuesOr(stale: Date): Prisma.MissionWhereInput[] {
+  /** OR predicates that define an "at-risk" mission (current state). */
+  private missionIssuesOr(): Prisma.MissionWhereInput[] {
     return [
-      { status: 'IN_PROGRESS', updatedAt: { lt: stale } },
-      { status: 'PENDING_VALIDATION', updatedAt: { lt: stale } },
+      { status: 'IN_PROGRESS' },
+      { status: 'PENDING_VALIDATION' },
       { status: 'DISPUTED' },
-      { clientPaidAt: { lt: stale }, status: { in: ['PENDING', 'SCHEDULED', 'IN_PROGRESS'] } },
+      { clientPaidAt: { not: null }, status: AdminOpsService.ESCROW_ACTIVE },
     ];
   }
 

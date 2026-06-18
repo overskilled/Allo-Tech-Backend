@@ -37,7 +37,8 @@ const REQUIRED_DOCUMENTS: KycDocumentType[] = [
  * in the backend env (comma-separated for multiple recipients).
  */
 const KYC_NOTIFICATION_RECIPIENTS = (
-  process.env.KYC_NOTIFICATION_EMAIL || 'ouateedemloic@gmail.com'
+  process.env.KYC_NOTIFICATION_EMAIL ||
+  'ouateedemloic@gmail.com,allotech39@gmail.com'
 )
   .split(',')
   .map((s) => s.trim())

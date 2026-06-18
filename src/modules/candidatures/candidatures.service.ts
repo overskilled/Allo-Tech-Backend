@@ -139,7 +139,10 @@ export class CandidaturesService {
     // Date / time constraints (not past, not after client's deadline, within slot).
     this.validateProposedDateTime(dto.proposedDate, need);
 
-    // Check if already applied
+    // Already applied? Re-application is allowed only when the prior attempt was
+    // withdrawn or rejected — we revive that row (the (needId, technicianId) pair
+    // is unique, so a second candidature can't be inserted). An active
+    // application (pending / accepted / in-progress) still blocks re-applying.
     const existing = await this.prisma.candidature.findUnique({
       where: {
         needId_technicianId: {
@@ -149,65 +152,87 @@ export class CandidaturesService {
       },
     });
 
-    if (existing) {
+    const REAPPLYABLE_STATUSES = ['WITHDRAWN', 'REJECTED'];
+    if (existing && !REAPPLYABLE_STATUSES.includes(existing.status)) {
       throw new BadRequestException('You have already applied for this need');
     }
 
-    // ---- Wallet: deduct 500 XAF candidature fee ----
+    const candidatureInclude = {
+      need: {
+        select: {
+          id: true,
+          title: true,
+          category: { select: { name: true } },
+          client: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      },
+    };
+
     const CANDIDATURE_FEE = 500;
-    const profile = technician.technicianProfile!;
+    let candidature: any;
+    let feeCharged = 0;
 
-    if (profile.walletBalance < CANDIDATURE_FEE) {
-      throw new BadRequestException(
-        `Solde insuffisant. Vous avez besoin de ${CANDIDATURE_FEE} XAF pour postuler. Solde actuel: ${profile.walletBalance} XAF`,
-      );
-    }
-
-    const newBalance = profile.walletBalance - CANDIDATURE_FEE;
-
-    const [candidature] = await this.prisma.$transaction([
-      this.prisma.candidature.create({
+    if (existing) {
+      // Reviving a withdrawn/rejected application: the fee was already paid for
+      // this need on the first attempt, so it is NOT charged again.
+      candidature = await this.prisma.candidature.update({
+        where: { id: existing.id },
         data: {
-          needId: dto.needId,
-          technicianId,
           message: dto.message,
           proposedDate: dto.proposedDate ? new Date(dto.proposedDate) : null,
           proposedPrice: dto.proposedPrice,
           status: 'PENDING',
         },
-        include: {
-          need: {
-            select: {
-              id: true,
-              title: true,
-              category: { select: { name: true } },
-              client: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                },
-              },
-            },
+        include: candidatureInclude,
+      });
+    } else {
+      // ---- Wallet: deduct 500 XAF candidature fee ----
+      const profile = technician.technicianProfile!;
+
+      if (profile.walletBalance < CANDIDATURE_FEE) {
+        throw new BadRequestException(
+          `Solde insuffisant. Vous avez besoin de ${CANDIDATURE_FEE} XAF pour postuler. Solde actuel: ${profile.walletBalance} XAF`,
+        );
+      }
+
+      const newBalance = profile.walletBalance - CANDIDATURE_FEE;
+      feeCharged = CANDIDATURE_FEE;
+
+      [candidature] = await this.prisma.$transaction([
+        this.prisma.candidature.create({
+          data: {
+            needId: dto.needId,
+            technicianId,
+            message: dto.message,
+            proposedDate: dto.proposedDate ? new Date(dto.proposedDate) : null,
+            proposedPrice: dto.proposedPrice,
+            status: 'PENDING',
           },
-        },
-      }),
-      this.prisma.technicianProfile.update({
-        where: { id: profile.id },
-        data: { walletBalance: newBalance },
-      }),
-      this.prisma.walletTransaction.create({
-        data: {
-          technicianProfileId: profile.id,
-          type: 'CANDIDATURE_FEE',
-          amount: -CANDIDATURE_FEE,
-          balanceAfter: newBalance,
-          description: `Frais de candidature pour le besoin "${dto.needId}"`,
-          referenceId: dto.needId,
-          referenceType: 'need',
-        },
-      }),
-    ]);
+          include: candidatureInclude,
+        }),
+        this.prisma.technicianProfile.update({
+          where: { id: profile.id },
+          data: { walletBalance: newBalance },
+        }),
+        this.prisma.walletTransaction.create({
+          data: {
+            technicianProfileId: profile.id,
+            type: 'CANDIDATURE_FEE',
+            amount: -CANDIDATURE_FEE,
+            balanceAfter: newBalance,
+            description: `Frais de candidature pour le besoin "${dto.needId}"`,
+            referenceId: dto.needId,
+            referenceType: 'need',
+          },
+        }),
+      ]);
+    }
 
     // Notify client about new candidature
     if (candidature.need?.client?.id) {
@@ -243,106 +268,14 @@ export class CandidaturesService {
         candidature_id: candidature.id,
         need_id: dto.needId,
         proposed_price: dto.proposedPrice,
-        fee_xaf: CANDIDATURE_FEE,
+        fee_xaf: feeCharged,
       },
       groups: { technician: technicianId },
     });
 
-    // ---- Auto-accept if proposed price is within client's budget ----
-    // Only auto-accept when the client explicitly set at least one budget
-    // bound. With no budget on the need, the client expects to compare
-    // candidatures manually — auto-accepting the first tech that proposes
-    // any price would be surprising and reduce the client's optionality.
-    const clientHasBudget = need.budgetMin != null || need.budgetMax != null;
-    const withinBudget =
-      clientHasBudget &&
-      dto.proposedPrice != null &&
-      (need.budgetMax == null || dto.proposedPrice <= Number(need.budgetMax)) &&
-      (need.budgetMin == null || dto.proposedPrice >= Number(need.budgetMin));
-
-    if (withinBudget) {
-      // Reject all other pending candidatures for this need
-      await this.prisma.candidature.updateMany({
-        where: {
-          needId: dto.needId,
-          id: { not: candidature.id },
-          status: 'PENDING',
-        },
-        data: { status: 'REJECTED' },
-      });
-
-      // Accept this candidature and move need to IN_PROGRESS
-      await this.prisma.candidature.update({
-        where: { id: candidature.id },
-        data: { status: 'ACCEPTED' },
-      });
-      await this.prisma.need.update({
-        where: { id: dto.needId },
-        data: { status: 'IN_PROGRESS' },
-      });
-
-      candidature.status = 'ACCEPTED' as any;
-
-      // Auto-create mission
-      try {
-        const proposedDateStr = dto.proposedDate ?? (need.preferredDate ? need.preferredDate.toISOString() : undefined);
-        await this.missionsService.createMissionFromCandidature(candidature.id, {
-          proposedDate: proposedDateStr ?? new Date().toISOString(),
-          proposedTime: '00:00',
-        });
-        this.logger.log(`Auto-accepted candidature ${candidature.id} (within budget) and created mission`);
-      } catch (err) {
-        this.logger.error(`Failed to auto-create mission from auto-accepted candidature ${candidature.id}: ${err}`);
-      }
-
-      // Notify technician of auto-acceptance
-      const techUser = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { email: true } });
-      const clientUser2 = await this.prisma.user.findUnique({
-        where: { id: candidature.need.client.id },
-        select: { email: true, firstName: true, lastName: true },
-      });
-      const technicianName2 = `${technician.firstName} ${technician.lastName}`;
-
-      if (techUser?.email) {
-        await this.mailService.sendCandidatureAccepted(techUser.email, {
-          technicianName: technician.firstName,
-          needTitle: candidature.need.title,
-          clientName: `${clientUser2?.firstName ?? ''} ${clientUser2?.lastName ?? ''}`.trim(),
-          date: dto.proposedDate,
-          time: '00:00',
-        });
-      }
-
-      await this.notificationsService.notifyCandidatureResponse({
-        technicianId,
-        needTitle: candidature.need.title,
-        accepted: true,
-        needId: candidature.need.id,
-      });
-
-      // Notify client of auto-acceptance
-      if (clientUser2?.email) {
-        await this.mailService.sendNewCandidature(clientUser2.email, {
-          clientName: clientUser2.firstName || 'Client',
-          technicianName: technicianName2,
-          needTitle: candidature.need.title,
-          message: `Candidature automatiquement acceptée prix proposé dans le budget.`,
-          proposedPrice: dto.proposedPrice,
-        });
-      }
-
-      this.analytics.capture({
-        distinctId: technicianId,
-        event: ANALYTICS_EVENTS.CANDIDATURE_AUTO_ACCEPTED,
-        properties: {
-          candidature_id: candidature.id,
-          need_id: dto.needId,
-          client_id: candidature.need.client.id,
-          proposed_price: dto.proposedPrice,
-        },
-        groups: { technician: technicianId },
-      });
-    }
+    // NOTE: Applying never auto-accepts. Every candidature stays PENDING and the
+    // need stays OPEN until the client reviews the applicants and accepts one
+    // manually (see respondToCandidature).
 
     return candidature;
   }

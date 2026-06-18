@@ -775,13 +775,21 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    if (dto.newPassword !== dto.confirmPassword) {
+    // The OTP flow sends `tempToken`; the web reset link sends `token`.
+    const resetToken = dto.tempToken ?? dto.token;
+    if (!resetToken) {
+      throw new BadRequestException('Jeton de réinitialisation manquant');
+    }
+
+    // Confirm-match is enforced when the client sends it (OTP flow). The web
+    // page validates the match itself and may omit confirmPassword.
+    if (dto.confirmPassword !== undefined && dto.newPassword !== dto.confirmPassword) {
       throw new BadRequestException('Les mots de passe ne correspondent pas');
     }
 
     const user = await this.prisma.user.findFirst({
       where: {
-        passwordResetTempToken: dto.tempToken,
+        passwordResetTempToken: resetToken,
         passwordResetTempExpires: { gt: new Date() },
       },
     });

@@ -614,6 +614,39 @@ export class UsersService {
     return createPaginatedResult(users, total, query);
   }
 
+  /**
+   * Builds a ~radiusKm bounding box around a latitude/longitude centre for
+   * "near me" technician filtering. Returns null when no valid centre is given.
+   * A box (not a true circle) keeps this working on plain Postgres without
+   * PostGIS — close enough for a discovery map. Default radius is 10km.
+   */
+  private computeGeoBox(query: QueryTechniciansDto): {
+    latMin: number;
+    latMax: number;
+    lngMin: number;
+    lngMax: number;
+  } | null {
+    if (
+      typeof query.latitude !== 'number' ||
+      Number.isNaN(query.latitude) ||
+      typeof query.longitude !== 'number' ||
+      Number.isNaN(query.longitude)
+    ) {
+      return null;
+    }
+    const radiusKm = query.radiusKm && query.radiusKm > 0 ? query.radiusKm : 10;
+    const latDelta = radiusKm / 111; // ~111km per degree of latitude
+    const cosLat = Math.cos((query.latitude * Math.PI) / 180);
+    const lngDelta =
+      radiusKm / (111 * (Math.abs(cosLat) < 0.01 ? 0.01 : Math.abs(cosLat)));
+    return {
+      latMin: query.latitude - latDelta,
+      latMax: query.latitude + latDelta,
+      lngMin: query.longitude - lngDelta,
+      lngMax: query.longitude + lngDelta,
+    };
+  }
+
   async findAllTechnicians(query: QueryTechniciansDto) {
     const where: any = {
       user: {
@@ -622,13 +655,22 @@ export class UsersService {
       },
     };
 
+    // "Near me": when a centre is provided, only return technicians whose
+    // location falls within ~radiusKm (default 10km) of the client. Without
+    // this, the list ranked by rating returns technicians from other cities.
+    const geoBox = this.computeGeoBox(query);
+    if (geoBox) {
+      where.latitude = { gte: geoBox.latMin, lte: geoBox.latMax };
+      where.longitude = { gte: geoBox.lngMin, lte: geoBox.lngMax };
+    }
+
     if (query.city) {
       where.city = { contains: query.city };
     }
 
-    if (query.isVerified !== undefined) {
-      where.isVerified = query.isVerified;
-    }
+    // Clients only ever see verified technicians — unverified profiles are
+    // never listed, regardless of any client-supplied filter.
+    where.isVerified = true;
 
     if (query.isAvailable !== undefined) {
       where.isAvailable = query.isAvailable;
@@ -693,12 +735,11 @@ export class UsersService {
   }
 
   /**
-   * Unified directory of ALL technicians those with a registered account
-   * (TechnicianProfile) AND those onboarded by agents who have no account yet
-   * (TechnicianOnboarding where technicianUserId IS NULL).
-   *
-   * Registered entries appear first (sorted by rating DESC), followed by
-   * unregistered onboarding entries. Pagination spans both sources correctly.
+   * Public technician directory powering the client discovery map/list.
+   * Lists ONLY registered technicians whose profile is verified
+   * (TechnicianProfile.isVerified = true), sorted by rating DESC. Agent-onboarded
+   * leads (TechnicianOnboarding) are intentionally excluded — they carry no
+   * verification, so clients never see unverified technicians.
    */
   async findTechnicianDirectory(query: QueryTechniciansDto) {
     const { skip, take } = query;
@@ -707,30 +748,8 @@ export class UsersService {
 
     // ── 0. "Near me" bounding box ──────────────────────────────────────────
     // When the caller passes a centre (latitude/longitude), restrict results to
-    // a bounding box of ~radiusKm (default 10km). A box (not a true circle) is
-    // used so this works on plain Postgres without PostGIS; close enough for a
-    // "technicians near you" map.
-    let geoBox:
-      | { latMin: number; latMax: number; lngMin: number; lngMax: number }
-      | null = null;
-    if (
-      typeof query.latitude === 'number' &&
-      !Number.isNaN(query.latitude) &&
-      typeof query.longitude === 'number' &&
-      !Number.isNaN(query.longitude)
-    ) {
-      const radiusKm = query.radiusKm && query.radiusKm > 0 ? query.radiusKm : 10;
-      const latDelta = radiusKm / 111; // ~111km per degree of latitude
-      const cosLat = Math.cos((query.latitude * Math.PI) / 180);
-      const lngDelta =
-        radiusKm / (111 * (Math.abs(cosLat) < 0.01 ? 0.01 : Math.abs(cosLat)));
-      geoBox = {
-        latMin: query.latitude - latDelta,
-        latMax: query.latitude + latDelta,
-        lngMin: query.longitude - lngDelta,
-        lngMax: query.longitude + lngDelta,
-      };
-    }
+    // a bounding box of ~radiusKm (default 10km) around it.
+    const geoBox = this.computeGeoBox(query);
 
     // ── 1. Build WHERE for registered technicians ──────────────────────────
     const regWhere: any = {
@@ -741,7 +760,8 @@ export class UsersService {
       regWhere.longitude = { gte: geoBox.lngMin, lte: geoBox.lngMax };
     }
     if (city) regWhere.city = { contains: city, mode: 'insensitive' };
-    if (query.isVerified !== undefined) regWhere.isVerified = query.isVerified;
+    // Verified technicians only — never expose unverified profiles to clients.
+    regWhere.isVerified = true;
     if (query.isAvailable !== undefined) regWhere.isAvailable = query.isAvailable;
     if (query.minRating) regWhere.avgRating = { gte: query.minRating };
     if (query.specialty) regWhere.specialties = { contains: query.specialty };
@@ -766,95 +786,27 @@ export class UsersService {
       ];
     }
 
-    // ── 2. Build WHERE for unregistered onboardings ────────────────────────
-    const unregWhere: any = {
-      technicianUserId: null,
-      status: { not: 'REJECTED' },
-    };
-    if (geoBox) {
-      // Onboardings carry no coordinates of their own; geo lives on the linked
-      // field visit. Requiring a field visit inside the box also drops any
-      // onboarding that can't be placed on the map anyway.
-      unregWhere.fieldVisit = {
-        is: {
-          latitude: { gte: geoBox.latMin, lte: geoBox.latMax },
-          longitude: { gte: geoBox.lngMin, lte: geoBox.lngMax },
-        },
-      };
-    }
-    if (city) unregWhere.city = { contains: city, mode: 'insensitive' };
-    // availability / rating / verified filters don't apply to raw onboardings
-    if (search) {
-      unregWhere.OR = [
-        { technicianName: { contains: search, mode: 'insensitive' } },
-        { profession: { contains: search, mode: 'insensitive' } },
-        { specialties: { contains: search, mode: 'insensitive' } },
-        { city: { contains: search, mode: 'insensitive' } },
-      ];
-    }
-    if (query.specialty) unregWhere.specialties = { contains: query.specialty };
-    if (query.category) {
-      unregWhere.AND = [
-        ...(unregWhere.AND ?? []),
-        {
-          OR: [
-            { profession: { contains: query.category, mode: 'insensitive' } },
-            { specialties: { contains: query.category, mode: 'insensitive' } },
-          ],
-        },
-      ];
-    }
+    // ── 2. Count + fetch verified registered technicians ───────────────────
+    const total = await this.prisma.technicianProfile.count({ where: regWhere });
 
-    // ── 3. Counts ──────────────────────────────────────────────────────────
-    const [regCount, unregCount] = await Promise.all([
-      this.prisma.technicianProfile.count({ where: regWhere }),
-      this.prisma.technicianOnboarding.count({ where: unregWhere }),
-    ]);
-    const total = regCount + unregCount;
-
-    // ── 4. Cross-source pagination (registered first) ──────────────────────
-    const regSkip = Math.min(skip, regCount);
-    const regTake = Math.max(0, Math.min(take, regCount - regSkip));
-    const unregSkip = Math.max(0, skip - regCount);
-    const unregTake = take - regTake;
-
-    // ── 5. Fetch registered ────────────────────────────────────────────────
-    const registered = regTake > 0
-      ? await this.prisma.technicianProfile.findMany({
-          where: regWhere,
-          skip: regSkip,
-          take: regTake,
-          orderBy: { avgRating: 'desc' },
-          include: {
-            user: {
-              select: {
-                id: true, firstName: true, lastName: true,
-                profileImage: true, phone: true, email: true,
-              },
-            },
+    const registered = await this.prisma.technicianProfile.findMany({
+      where: regWhere,
+      skip,
+      take,
+      orderBy: { avgRating: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true, firstName: true, lastName: true, profileImage: true,
           },
-        })
-      : [];
+        },
+      },
+    });
 
-    // ── 6. Fetch unregistered ──────────────────────────────────────────────
-    const unregistered = unregTake > 0
-      ? await this.prisma.technicianOnboarding.findMany({
-          where: unregWhere,
-          skip: unregSkip,
-          take: unregTake,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            fieldVisit: {
-              select: { address: true, city: true, neighborhood: true, latitude: true, longitude: true },
-            },
-          },
-        })
-      : [];
-
-    // ── 7. Map to unified shape ────────────────────────────────────────────
+    // ── 3. Map to public shape ─────────────────────────────────────────────
     // NOTE: technician phone is intentionally omitted from this public-facing
     // listing to protect technician contact details from anonymous clients.
-    const mappedRegistered = registered.map((t) => ({
+    const data = registered.map((t) => ({
       id: t.user.id,
       firstName: t.user.firstName,
       lastName: t.user.lastName,
@@ -874,34 +826,6 @@ export class UsersService {
       yearsExperience: t.yearsExperience,
       registered: true,
     }));
-
-    const mappedUnregistered = unregistered.map((ob) => {
-      const nameParts = (ob.technicianName || '').trim().split(/\s+/);
-      const fv = ob.fieldVisit;
-      return {
-        id: ob.id,                    // onboarding ID (no user account yet)
-        firstName: nameParts[0] || ob.technicianName,
-        lastName: nameParts.slice(1).join(' ') || '',
-        profileImage: null,
-        phone: ob.technicianPhone,
-        profession: ob.profession,
-        specialties: this.parseJsonField(ob.specialties),
-        city: fv?.city || ob.city,
-        neighborhood: fv?.neighborhood || ob.neighborhood,
-        address: fv?.address || ob.address,
-        latitude: fv?.latitude ?? null,
-        longitude: fv?.longitude ?? null,
-        isAvailable: true,
-        isVerified: false,
-        rating: 0,
-        totalRatings: 0,
-        completedJobs: 0,
-        yearsExperience: ob.yearsExperience ?? 0,
-        registered: false,
-      };
-    });
-
-    const data = [...mappedRegistered, ...mappedUnregistered];
 
     return {
       data,

@@ -81,6 +81,12 @@ export class QueryAdminMissionsDto extends PaginationDto {
   @IsBoolean()
   @Transform(toBool)
   issuesOnly?: boolean;
+
+  @ApiPropertyOptional({ description: 'Only missions with held escrow funds (active)' })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(toBool)
+  escrowOnly?: boolean;
 }
 
 export class HealthQueryDto {

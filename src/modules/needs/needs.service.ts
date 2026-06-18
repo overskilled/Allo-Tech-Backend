@@ -19,6 +19,37 @@ import { NeedStatus } from '@prisma/client';
 import { ProximityMatchingService } from './proximity-matching.service';
 import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
 
+/**
+ * Maps a NeedCategory name (diacritics stripped + lowercased) to the keyword
+ * stems that count as a match against a technician's free-text `profession` or
+ * `specialties`. The two vocabularies diverge — profession "Électricien" vs
+ * category "Électricité", and the mobile picker strips accents ("Electricite")
+ * — so plain substring matching on the full names is unreliable. Stems are kept
+ * short so a normalized technician term simply has to *contain* one.
+ *
+ * Any active category absent from this map falls back to matching on its own
+ * normalized name, so categories added later keep working without code changes.
+ */
+const CATEGORY_MATCH_KEYWORDS: Record<string, string[]> = {
+  plomberie: ['plomb'],
+  electricite: ['electric'],
+  peinture: ['peint'],
+  menuiserie: ['menuis', 'bois'],
+  climatisation: ['clim', 'froid'],
+  informatique: ['informati', 'ordinateur', 'reseau'],
+  maconnerie: ['macon', 'carrel', 'beton'],
+  jardinage: ['jardin', 'paysag', 'espace vert'],
+};
+
+/** Lowercase + strip diacritics so "Électricité" and "Electricite" compare equal. */
+function normalizeExpertiseTerm(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+}
+
 @Injectable()
 export class NeedsService {
   private readonly logger = new Logger(NeedsService.name);
@@ -593,6 +624,57 @@ export class NeedsService {
   // TECHNICIAN NEED OPERATIONS
   // ==========================================
 
+  /**
+   * Returns the NeedCategory ids a technician is qualified for, derived from
+   * their `profession` + `specialties`. Returns `null` when the technician has
+   * no recognizable trade (no profile, or no term matches any category) — callers
+   * treat `null` as "no expertise restriction" so the feed never breaks on
+   * incomplete/legacy profile data.
+   */
+  private async getMatchingCategoryIds(
+    profile: { profession?: string | null; specialties?: string | null } | null,
+  ): Promise<string[] | null> {
+    if (!profile) return null;
+
+    // Collect the technician's free-text terms: profession + specialties (a
+    // JSON-array-as-string, with a raw-string fallback if it isn't valid JSON).
+    const terms: string[] = [];
+    if (profile.profession) terms.push(profile.profession);
+    if (profile.specialties) {
+      try {
+        const parsed = JSON.parse(profile.specialties);
+        if (Array.isArray(parsed)) {
+          terms.push(...parsed.filter((s): s is string => typeof s === 'string'));
+        } else {
+          terms.push(profile.specialties);
+        }
+      } catch {
+        terms.push(profile.specialties);
+      }
+    }
+
+    const normalizedTerms = terms.map(normalizeExpertiseTerm).filter(Boolean);
+    if (normalizedTerms.length === 0) return null;
+
+    const categories = await this.prisma.needCategory.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+    });
+
+    const matchedIds = categories
+      .filter((category) => {
+        const normalizedName = normalizeExpertiseTerm(category.name);
+        const keywords =
+          CATEGORY_MATCH_KEYWORDS[normalizedName] ?? [normalizedName];
+        return keywords.some((keyword) =>
+          normalizedTerms.some((term) => term.includes(keyword)),
+        );
+      })
+      .map((category) => category.id);
+
+    return matchedIds.length > 0 ? matchedIds : null;
+  }
+
   async getAvailableNeeds(technicianId: string, query: QueryNeedsDto) {
     const technician = await this.prisma.user.findUnique({
       where: { id: technicianId },
@@ -640,6 +722,21 @@ export class NeedsService {
         { title: { contains: query.search } },
         { description: { contains: query.search } },
       ];
+    }
+
+    // Only surface needs in categories matching the technician's field(s) of
+    // expertise (an electrician shouldn't see painting jobs). Skipped when the
+    // technician has no recognizable trade so the feed never ends up empty.
+    const expertiseCategoryIds = await this.getMatchingCategoryIds(
+      technician.technicianProfile,
+    );
+    if (expertiseCategoryIds) {
+      where.categoryId = query.categoryId
+        ? // Honor an explicit category filter only if it's within their expertise.
+          expertiseCategoryIds.includes(query.categoryId)
+          ? query.categoryId
+          : { in: [] }
+        : { in: expertiseCategoryIds };
     }
 
     // Filter out needs where technician has a pending or accepted candidature
@@ -702,12 +799,20 @@ export class NeedsService {
       throw new BadRequestException('Location not available');
     }
 
+    // Restrict to the technician's field(s) of expertise (null = no restriction).
+    const expertiseCategoryIds = await this.getMatchingCategoryIds(
+      technician.technicianProfile,
+    );
+
     // Get all open needs and filter by distance
     const allNeeds = await this.prisma.need.findMany({
       where: {
         status: 'OPEN',
         latitude: { not: null },
         longitude: { not: null },
+        ...(expertiseCategoryIds
+          ? { categoryId: { in: expertiseCategoryIds } }
+          : {}),
       },
       include: {
         category: true,

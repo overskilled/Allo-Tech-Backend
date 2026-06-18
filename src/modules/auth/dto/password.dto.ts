@@ -1,5 +1,11 @@
-import { IsString, MinLength, Matches, Length } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import {
+  IsString,
+  MinLength,
+  Matches,
+  Length,
+  IsOptional,
+} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ForgotPasswordDto {
   @ApiProperty({
@@ -28,9 +34,17 @@ export class VerifyResetOtpDto {
 }
 
 export class ResetPasswordDto {
-  @ApiProperty({ description: 'Temporary token returned by verify-reset-otp' })
+  // The OTP flow sends `tempToken`; the web reset link sends `token`. Both are
+  // accepted (resolved in the service) so a single endpoint serves both paths.
+  @ApiPropertyOptional({ description: 'Temporary token returned by verify-reset-otp' })
+  @IsOptional()
   @IsString()
-  tempToken: string;
+  tempToken?: string;
+
+  @ApiPropertyOptional({ description: 'Reset token carried by the web reset link (alias of tempToken)' })
+  @IsOptional()
+  @IsString()
+  token?: string;
 
   @ApiProperty({ example: 'NewSecurePass123!' })
   @IsString()
@@ -40,9 +54,12 @@ export class ResetPasswordDto {
   })
   newPassword: string;
 
-  @ApiProperty({ example: 'NewSecurePass123!' })
+  // Optional: the web page validates the match client-side and may omit this.
+  // When present, the service still enforces it.
+  @ApiPropertyOptional({ example: 'NewSecurePass123!' })
+  @IsOptional()
   @IsString()
-  confirmPassword: string;
+  confirmPassword?: string;
 }
 
 export class ChangePasswordDto {
