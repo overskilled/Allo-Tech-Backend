@@ -107,6 +107,15 @@ export class AdminController {
     return this.adminService.updateUserPhone(id, dto.phone);
   }
 
+  @Post('users/:id/reset-link')
+  @ApiOperation({
+    summary: 'Generate a one-time password-reset link for a user',
+  })
+  @ApiResponse({ status: 201, description: 'Reset link generated' })
+  generatePasswordResetLink(@Param('id') id: string) {
+    return this.adminService.generatePasswordResetLink(id);
+  }
+
   @Post('users/:id/suspend')
   @ApiOperation({ summary: 'Suspend user' })
   @ApiResponse({ status: 200, description: 'User suspended' })

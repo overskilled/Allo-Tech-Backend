@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -365,6 +366,47 @@ export class AdminService {
         role: true,
       },
     });
+  }
+
+  /**
+   * Generate a one-time password-reset link for a user. Used when a person
+   * can't recover their own password (e.g. a phone-only account with no email,
+   * so no OTP can be delivered). Sets the same `passwordResetTempToken` the web
+   * reset page consumes, returns the full link for an admin to hand over, and
+   * clears any pending OTP so only this link is live.
+   */
+  async generatePasswordResetLink(userId: string) {
+    const RESET_TTL_HOURS = 24;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, firstName: true, lastName: true, phone: true, email: true, role: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const token = randomUUID();
+    const expiresAt = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordResetTempToken: token,
+        passwordResetTempExpires: expiresAt,
+        // Invalidate any in-flight OTP so this link is the only valid path.
+        passwordResetOtp: null,
+        passwordResetOtpExpires: null,
+      },
+    });
+
+    return {
+      user,
+      token,
+      expiresAt,
+      expiresInHours: RESET_TTL_HOURS,
+      resetLink: this.mailService.buildPasswordResetLink(token),
+    };
   }
 
   async suspendUser(userId: string, dto: SuspendUserDto) {

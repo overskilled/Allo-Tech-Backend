@@ -527,8 +527,17 @@ export class MailService {
     return this.send({ to, ...template });
   }
 
+  /**
+   * Build the web password-reset link the front-end's ResetPasswordPage reads
+   * (`?token=` on the /reinitialiser-mot-de-passe route). Centralized here so
+   * the admin "generate reset link" flow and the email flow stay in sync.
+   */
+  buildPasswordResetLink(token: string): string {
+    return `${this.frontendUrl}/reinitialiser-mot-de-passe?token=${token}`;
+  }
+
   async sendPasswordReset(to: string, name: string, token: string) {
-    const resetUrl = `${this.frontendUrl}/reinitialiser-mot-de-passe?token=${token}`;
+    const resetUrl = this.buildPasswordResetLink(token);
     const template = TEMPLATES.PASSWORD_RESET({ name, resetUrl });
     return this.send({ to, ...template });
   }
