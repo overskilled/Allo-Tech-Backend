@@ -137,6 +137,7 @@ enum WalletTransactionType {
   WALLET_DEPOSIT // + technician top-up via mobile money
   ADMIN_CREDIT // + manual admin adjustment
   ADMIN_DEBIT // - manual admin adjustment
+  CANCELLATION_FEE // +/- settlement when a client cancels (travel + diagnosis)
 }
 
 enum MobileMoneyOperator {
@@ -786,6 +787,14 @@ model Appointment {
 // QUOTATIONS & REPORTS
 // ===========================================
 
+// Who pays for the materials portion of a quotation/mission.
+//   FULL        → client pays labour + materials through the app.
+//   LABOR_ONLY  → client provides the materials; pays labour only.
+enum PaymentScope {
+  FULL
+  LABOR_ONLY
+}
+
 model Quotation {
   id String @id @default(uuid())
 
@@ -806,8 +815,15 @@ model Quotation {
   // Pricing
   laborCost     Decimal @db.Decimal(10, 2)
   materialsCost Decimal @db.Decimal(10, 2)
-  totalCost     Decimal @db.Decimal(10, 2)
+  totalCost     Decimal @db.Decimal(10, 2) // labour + materials (full devis value)
   currency      String  @default("XAF")
+
+  // Who pays the materials (client choice). Drives the amount actually charged.
+  paymentScope       PaymentScope @default(FULL)
+  // Platform's 5% cut of labour, captured at payment time (audit / reporting).
+  platformCommission Decimal?     @db.Decimal(10, 2)
+  // Net amount credited to the technician (materials + 95% labour for FULL).
+  payoutAmount       Decimal?     @db.Decimal(10, 2)
 
   status     QuotationStatus @default(DRAFT)
   validUntil DateTime?
@@ -826,9 +842,9 @@ model Quotation {
   signatureToken          String?   @unique // UUID token for signing link
   signatureTokenExpiresAt DateTime? // token expiry (7 days)
 
-  // Link to mission (for additional quotations during a mission)
+  // Link to mission (for on-site quotes during a mission)
   missionId String?
-  mission   Mission? @relation("MissionAdditionalQuotations", fields: [missionId], references: [id])
+  mission   Mission? @relation("MissionOnSiteQuotations", fields: [missionId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1482,6 +1498,9 @@ model Mission {
   scheduledDate DateTime?
   scheduledTime String? // "14:00"
 
+  // §6.2 — RDV timing: when the pre-appointment reminder was sent (avoids dupes)
+  reminderSentAt DateTime?
+
   // Lifecycle timestamps
   startedAt          DateTime?
   completedAt        DateTime?
@@ -1510,7 +1529,7 @@ model Mission {
 
   // Relations
   documents            MissionDocument[]
-  additionalQuotations Quotation[]       @relation("MissionAdditionalQuotations")
+  onSiteQuotations Quotation[]       @relation("MissionOnSiteQuotations")
   ratings              Rating[]          @relation("MissionRating")
   conversation         Conversation?
 

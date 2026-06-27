@@ -82,13 +82,26 @@ export class WalletService {
 
   async requestPayout(
     technicianId: string,
-    dto: { amount: number; operator: string; phoneNumber: string },
+    dto: { amount: number; operator: string },
   ) {
     const profile = await this.prisma.technicianProfile.findUnique({
       where: { userId: technicianId },
       select: { id: true, walletBalance: true },
     });
     if (!profile) throw new NotFoundException('Profil technicien introuvable');
+
+    // Withdrawals can only go to the technician's OWN registered phone number —
+    // never a free-text destination — so funds can't be diverted elsewhere.
+    const user = await this.prisma.user.findUnique({
+      where: { id: technicianId },
+      select: { phone: true },
+    });
+    const phoneNumber = user?.phone?.trim();
+    if (!phoneNumber) {
+      throw new BadRequestException(
+        'Ajoutez un numéro de téléphone à votre profil pour effectuer un retrait.',
+      );
+    }
 
     if (dto.amount < MIN_PAYOUT) {
       throw new BadRequestException(`Montant minimum de retrait: ${MIN_PAYOUT} XAF`);
@@ -116,7 +129,7 @@ export class WalletService {
       const result = await this.pawaPayService.initiatePayout({
         amount: dto.amount,
         currency: 'XAF',
-        phoneNumber: dto.phoneNumber,
+        phoneNumber,
         operator: dto.operator,
         description: 'Retrait portefeuille AlloTech',
       });
@@ -137,7 +150,7 @@ export class WalletService {
           amount: dto.amount,
           currency: 'XAF',
           operator: dto.operator,
-          phoneNumber: dto.phoneNumber,
+          phoneNumber,
           status: payoutStatus,
           pawapayPayoutId,
         },
@@ -152,7 +165,7 @@ export class WalletService {
           type: 'PAYOUT',
           amount: -dto.amount,
           balanceAfter: newBalance,
-          description: `Retrait vers ${dto.operator} ${dto.phoneNumber}`,
+          description: `Retrait vers ${dto.operator} ${phoneNumber}`,
           referenceType: 'PAYOUT',
         },
       }),
@@ -244,11 +257,13 @@ export class WalletService {
       };
     }
 
-    // Poll PawaPay for current status
+    // Poll PawaPay for current status. getDepositStatus() normalises the
+    // response to the deposit's TRUE outcome (never the 'FOUND' lookup
+    // envelope), so we credit ONLY on a real COMPLETED — crediting on 'FOUND'
+    // previously accepted deposits that had failed or were still pending.
     const pawaStatus = await this.pawaPayService.getDepositStatus(depositId);
 
-    // PawaPay sandbox returns 'FOUND' for successfully processed deposits
-    if (pawaStatus.status === 'COMPLETED' || pawaStatus.status === 'FOUND') {
+    if (pawaStatus.status === 'COMPLETED') {
       await this.completeDeposit(deposit.technicianProfileId, deposit.amount, depositId);
       return { depositId, status: 'COMPLETED' as const, amount: deposit.amount };
     }

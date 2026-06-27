@@ -242,20 +242,9 @@ export class QuotationsController {
   async payQuotation(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
-    @Body() dto: { phoneNumber: string; operator: string },
+    @Body() dto: { phoneNumber: string; operator: string; paymentScope?: 'FULL' | 'LABOR_ONLY' },
   ) {
     return this.quotationsService.payQuotation(id, userId, dto);
-  }
-
-  @Post(':id/pay-cash')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Client confirms cash payment marks quotation as PAID immediately' })
-  @ApiParam({ name: 'id', description: 'Quotation ID' })
-  async payQuotationCash(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-  ) {
-    return this.quotationsService.confirmCashPayment(id, userId);
   }
 
   @Post(':id/approve-completion')

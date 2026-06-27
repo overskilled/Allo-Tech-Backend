@@ -269,9 +269,26 @@ export class PawaPayService {
         throw new BadRequestException(`Failed to get deposit status: ${response.statusText}`);
       }
 
-      const result = JSON.parse(rawBody) as PawaPayDepositStatus;
+      const parsed = JSON.parse(rawBody) as any;
+      // PawaPay's deposit-status response comes in a few shapes depending on API
+      // version: a flat object, an array `[deposit]`, or a v2 envelope
+      // `{ status: 'FOUND' | 'NOT_FOUND', data: deposit | [deposit] }`.
+      // Normalise so the returned `status` is always the deposit's TRUE outcome
+      // (COMPLETED / FAILED / PROCESSING / ACCEPTED) and NEVER the 'FOUND'
+      // lookup envelope. Treating 'FOUND' as success is what credited deposits
+      // that had actually failed or were still pending ("faux dépôts").
+      const envelopeData = parsed && parsed.data !== undefined ? parsed.data : parsed;
+      const deposit = (Array.isArray(envelopeData) ? envelopeData[0] : envelopeData) ?? {};
+      const rawStatus = deposit.status ?? parsed?.status;
+      const isEnvelopeOnly = rawStatus === 'FOUND' || rawStatus === 'NOT_FOUND';
+      const result: PawaPayDepositStatus = {
+        ...deposit,
+        // A bare envelope with no resolvable deposit status is NOT a success —
+        // report it as still processing; the authoritative webhook will settle it.
+        status: isEnvelopeOnly ? 'PROCESSING' : rawStatus,
+      };
       this.logger.log(
-        `[deposit:status] depositId=${depositId} status=${result.status}${result.failureReason ? ` reason=${result.failureReason.failureCode}: ${result.failureReason.failureMessage}` : ''}`
+        `[deposit:status] depositId=${depositId} rawStatus=${rawStatus} normalized=${result.status}${result.failureReason ? ` reason=${result.failureReason.failureCode}: ${result.failureReason.failureMessage}` : ''}`
       );
       return result;
     } catch (error) {

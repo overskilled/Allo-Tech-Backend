@@ -24,7 +24,7 @@ import {
   CancelMissionDto,
   RequestCompletionDto,
   AddMissionDocumentDto,
-  CreateAdditionalQuotationDto,
+  CreateOnSiteQuotationDto,
   QueryMissionsDto,
 } from './dto/mission.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -143,6 +143,19 @@ export class MissionsController {
     return this.missionsService.validateMission(id, userId, dto);
   }
 
+  @Post(':id/close')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Close a mission (Client) — releases escrow or validates as needed' })
+  @ApiParam({ name: 'id', description: 'Mission ID' })
+  @ApiResponse({ status: 200, description: 'Mission closed' })
+  async closeMission(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: ValidateMissionDto,
+  ) {
+    return this.missionsService.closeMission(id, userId, dto);
+  }
+
   @Post(':id/pay')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Client pays candidature-based mission via PawaPay' })
@@ -154,6 +167,19 @@ export class MissionsController {
     @Body() dto: { phoneNumber: string; operator: string },
   ) {
     return this.missionsService.payMission(id, userId, dto);
+  }
+
+  @Post(':id/sos')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Raise an SOS / emergency alert during a mission' })
+  @ApiParam({ name: 'id', description: 'Mission ID' })
+  @ApiResponse({ status: 200, description: 'SOS alert raised' })
+  async raiseSos(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: { latitude?: number; longitude?: number; message?: string },
+  ) {
+    return this.missionsService.raiseSosAlert(id, userId, dto ?? {});
   }
 
   @Post(':id/cancel')
@@ -209,18 +235,18 @@ export class MissionsController {
   }
 
   // ==========================================
-  // ADDITIONAL QUOTATION
+  // ON-SITE QUOTATION
   // ==========================================
 
-  @Post(':id/additional-quotation')
-  @ApiOperation({ summary: 'Create additional quotation during mission (Technician)' })
+  @Post(':id/on-site-quotation')
+  @ApiOperation({ summary: 'Create on-site quote during mission (Technician)' })
   @ApiParam({ name: 'id', description: 'Mission ID' })
-  @ApiResponse({ status: 201, description: 'Additional quotation created' })
-  async createAdditionalQuotation(
+  @ApiResponse({ status: 201, description: 'On-site quote created' })
+  async createOnSiteQuotation(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
-    @Body() dto: CreateAdditionalQuotationDto,
+    @Body() dto: CreateOnSiteQuotationDto,
   ) {
-    return this.missionsService.createAdditionalQuotation(id, userId, dto);
+    return this.missionsService.createOnSiteQuotation(id, userId, dto);
   }
 }

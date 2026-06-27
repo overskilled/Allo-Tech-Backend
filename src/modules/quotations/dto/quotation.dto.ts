@@ -11,8 +11,9 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { QuotationStatus, NeedUrgency } from '@prisma/client';
+import { QuotationStatus, NeedUrgency, PaymentScope } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { MIN_LABOR_XAF } from '../quotation-financials';
 
 export class MaterialItemDto {
   @ApiProperty({ description: 'Material name' })
@@ -55,10 +56,18 @@ export class CreateQuotationDto {
   @Type(() => MaterialItemDto)
   materials: MaterialItemDto[];
 
-  @ApiProperty({ description: 'Labor cost' })
+  @ApiProperty({ description: `Labor cost (main d'œuvre), minimum ${MIN_LABOR_XAF} XAF` })
   @IsNumber()
-  @Min(0)
+  @Min(MIN_LABOR_XAF, { message: `Le budget main d'œuvre doit être d'au moins ${MIN_LABOR_XAF} XAF` })
   laborCost: number;
+
+  @ApiPropertyOptional({
+    enum: PaymentScope,
+    description: 'Who pays the materials: FULL (labour + materials) or LABOR_ONLY (client provides materials)',
+  })
+  @IsOptional()
+  @IsEnum(PaymentScope)
+  paymentScope?: PaymentScope;
 
   @ApiPropertyOptional({ description: 'Quote validity date' })
   @IsOptional()

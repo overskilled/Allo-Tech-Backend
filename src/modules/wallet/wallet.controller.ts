@@ -21,7 +21,8 @@ import { MobileMoneyOperator } from '../payments/dto/payment.dto';
 class RequestPayoutDto {
   @IsNumber() @Min(1000) amount: number;
   @IsEnum(MobileMoneyOperator) operator: string;
-  @IsString() @MaxLength(20) phoneNumber: string;
+  // Withdrawals always go to the technician's own registered phone number, taken
+  // from their account — never a client-supplied destination.
 }
 
 class DepositDto {

@@ -1,11 +1,14 @@
 import {
   Injectable,
+  Inject,
+  forwardRef,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { QuotationsService } from '../quotations/quotations.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { MailService } from '../mail/mail.service';
 import { PawaPayService } from '../payments/providers/pawapay.service';
@@ -16,12 +19,18 @@ import {
   CancelMissionDto,
   RequestCompletionDto,
   AddMissionDocumentDto,
-  CreateAdditionalQuotationDto,
+  CreateOnSiteQuotationDto,
   QueryMissionsDto,
 } from './dto/mission.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { MissionStatus } from '@prisma/client';
 import { AnalyticsService, ANALYTICS_EVENTS } from '../analytics/analytics.service';
+import {
+  meetsMinimumLabor,
+  MIN_LABOR_XAF,
+  computeCancellationSplit,
+  computeQuotationFinancials,
+} from '../quotations/quotation-financials';
 
 @Injectable()
 export class MissionsService {
@@ -34,6 +43,8 @@ export class MissionsService {
     private readonly pawaPayService: PawaPayService,
     private readonly notificationsService: NotificationsService,
     private readonly analytics: AnalyticsService,
+    @Inject(forwardRef(() => QuotationsService))
+    private readonly quotationsService: QuotationsService,
   ) {}
 
   // ==========================================
@@ -150,6 +161,17 @@ export class MissionsService {
 
     if (candidature.status !== 'ACCEPTED') {
       throw new BadRequestException('La candidature doit être acceptée pour créer une mission');
+    }
+
+    // A mission cannot be created below the 5 000 XAF labour floor. When the
+    // technician proposed a price, it must meet the minimum.
+    if (
+      candidature.proposedPrice != null &&
+      !meetsMinimumLabor(Number(candidature.proposedPrice))
+    ) {
+      throw new BadRequestException(
+        `Le montant proposé doit être d'au moins ${MIN_LABOR_XAF} XAF`,
+      );
     }
 
     // Check if mission already exists for this need + technician
@@ -545,6 +567,30 @@ export class MissionsService {
     return updated;
   }
 
+  /**
+   * Single "close the mission" entry point for the client. Routes to the right
+   * underlying action so callers never have to know the mission's funding type:
+   *   - quotation mission, paid (escrow held) → release the funds
+   *     (quotationsService.approveCompletion)
+   *   - otherwise (candidature mission)        → dual-validation
+   *     (validateMission)
+   * This removes the "two validation systems split across screens" footgun.
+   */
+  async closeMission(missionId: string, clientId: string, dto: ValidateMissionDto = {}) {
+    const mission = await this.prisma.mission.findUnique({
+      where: { id: missionId },
+      include: { quotation: { select: { id: true, status: true } } },
+    });
+    if (!mission) throw new NotFoundException('Mission introuvable');
+    if (mission.clientId !== clientId) throw new ForbiddenException('Accès non autorisé');
+
+    if (mission.quotationId && mission.quotation?.status === 'PAID') {
+      // Funds are held in escrow — releasing them also completes the mission.
+      return this.quotationsService.approveCompletion(mission.quotationId, clientId);
+    }
+    return this.validateMission(missionId, clientId, dto);
+  }
+
   async validateMission(missionId: string, userId: string, dto: ValidateMissionDto) {
     const mission = await this.prisma.mission.findUnique({
       where: { id: missionId },
@@ -664,6 +710,256 @@ export class MissionsService {
     return updated;
   }
 
+  /**
+   * §6.2 — RDV timing job (run on a cron). Two passes:
+   *  1. Reminder: missions ~30–60 min before the rendez-vous get a push to both
+   *     parties (the technician can still propose a new time up to 30 min before).
+   *  2. Auto-cancel: missions 30+ min past the rendez-vous that never started are
+   *     cancelled and the need is REOPENED to other technicians, with a push to
+   *     both parties.
+   */
+  async runScheduledTimeouts(): Promise<{ reminded: number; cancelled: number }> {
+    const now = new Date();
+    const remindFrom = new Date(now.getTime() + 30 * 60_000); // 30 min ahead
+    const remindTo = new Date(now.getTime() + 60 * 60_000); // 60 min ahead
+    const overdueBefore = new Date(now.getTime() - 30 * 60_000); // 30 min past
+
+    // 1. Pre-RDV reminders (once per mission)
+    const toRemind = await this.prisma.mission.findMany({
+      where: {
+        status: { in: ['PENDING', 'SCHEDULED'] },
+        scheduledDate: { gte: remindFrom, lte: remindTo },
+        reminderSentAt: null,
+      },
+      include: { need: { select: { title: true } } },
+    });
+    for (const m of toRemind) {
+      const title = m.need?.title || 'Mission';
+      try {
+        await this.notificationsService.createNotification({
+          userId: m.clientId,
+          type: 'MISSION',
+          title: 'Rappel de rendez-vous',
+          body: `Votre intervention « ${title} » approche. Le technicien doit se présenter à l'heure convenue.`,
+          data: { missionId: m.id },
+        });
+        await this.notificationsService.createNotification({
+          userId: m.technicianId,
+          type: 'MISSION',
+          title: 'Rappel de rendez-vous',
+          body: `Rendez-vous « ${title} » bientôt. Vous pouvez encore proposer une nouvelle heure jusqu'à 30 min avant. Passé 30 min de retard, la demande est rouverte aux autres techniciens.`,
+          data: { missionId: m.id },
+        });
+        await this.prisma.mission.update({ where: { id: m.id }, data: { reminderSentAt: now } });
+      } catch (e: any) {
+        this.logger.warn(`RDV reminder failed for mission ${m.id}: ${e?.message}`);
+      }
+    }
+
+    // 2. Auto-cancel + reopen the need for no-shows (30 min past, not started)
+    const overdue = await this.prisma.mission.findMany({
+      where: {
+        status: { in: ['PENDING', 'SCHEDULED'] },
+        scheduledDate: { lt: overdueBefore },
+      },
+      include: { need: { select: { id: true, title: true } } },
+    });
+    for (const m of overdue) {
+      const title = m.need?.title || 'Mission';
+      try {
+        await this.prisma.mission.update({
+          where: { id: m.id },
+          data: {
+            status: 'CANCELLED',
+            cancelledAt: now,
+            cancellationReason:
+              "Délai dépassé (30 min après l'heure du rendez-vous) — demande rouverte aux autres techniciens",
+          },
+        });
+        if (m.needId) {
+          await this.prisma.need.update({ where: { id: m.needId }, data: { status: 'OPEN' } });
+        }
+        await this.notificationsService.createNotification({
+          userId: m.clientId,
+          type: 'NEED',
+          title: 'Rendez-vous expiré',
+          body: `Le technicien ne s'est pas présenté dans les 30 min. Votre demande « ${title} » a été rouverte pour d'autres techniciens.`,
+          data: { needId: m.needId },
+        });
+        await this.notificationsService.createNotification({
+          userId: m.technicianId,
+          type: 'MISSION',
+          title: 'Mission expirée',
+          body: `Le délai de 30 min après l'heure du rendez-vous « ${title} » est dépassé. La demande a été rouverte aux autres techniciens.`,
+          data: { missionId: m.id },
+        });
+        // NOTE: if the client had paid, a full refund is due (technician no-show
+        // → no travel fee). The mobile-money disbursement is an ops follow-up.
+        if (m.clientPaidAt || m.heldAmount) {
+          this.logger.warn(`Auto-cancelled mission ${m.id} had a payment — full client refund due.`);
+        }
+      } catch (e: any) {
+        this.logger.warn(`Auto-cancel failed for mission ${m.id}: ${e?.message}`);
+      }
+    }
+
+    if (toRemind.length || overdue.length) {
+      this.logger.log(`RDV timing: ${toRemind.length} reminded, ${overdue.length} auto-cancelled.`);
+    }
+    return { reminded: toRemind.length, cancelled: overdue.length };
+  }
+
+  /**
+   * §6.1 — Settle a client cancellation. The technician keeps min(5 000, paid)
+   * (travel + diagnosis); the rest is refunded to the client. Adjusts the
+   * technician's wallet so they net exactly the fee (quotation missions credit
+   * the tech on payment, so this claws the excess back; candidature missions
+   * hold the funds, so this credits the fee). Returns the breakdown, or null
+   * when there's nothing paid to settle.
+   *
+   * NOTE: the client mobile-money refund disbursement is left to ops / a
+   * PawaPay refund — here the amount is computed, logged and notified.
+   */
+  private async settleClientCancellation(
+    mission: any,
+  ): Promise<{ techFee: number; clientRefund: number } | null> {
+    let paidByClient = 0;
+    let techAlreadyCredited = 0;
+
+    if (mission.quotationId) {
+      const q = await this.prisma.quotation.findUnique({
+        where: { id: mission.quotationId },
+        select: {
+          status: true,
+          laborCost: true,
+          materialsCost: true,
+          paymentScope: true,
+          payoutAmount: true,
+          heldAmount: true,
+        },
+      });
+      if (q && q.status === 'PAID') {
+        const fin = computeQuotationFinancials({
+          laborCost: Number(q.laborCost),
+          materialsCost: Number(q.materialsCost),
+          paymentScope: q.paymentScope,
+        });
+        paidByClient = Number(q.heldAmount ?? 0) || fin.clientPays;
+        techAlreadyCredited = Number(q.payoutAmount ?? fin.technicianPayout ?? 0);
+      }
+    } else if (mission.clientPaidAt && mission.proposedAmount) {
+      // Candidature mission — funds are held until completion (tech not credited).
+      paidByClient = Number(mission.heldAmount ?? mission.proposedAmount);
+      techAlreadyCredited = 0;
+    }
+
+    if (paidByClient <= 0) return null;
+
+    const { techFee, clientRefund, techAdjustment } = computeCancellationSplit(
+      paidByClient,
+      techAlreadyCredited,
+    );
+
+    // Adjust the technician's wallet so they net exactly `techFee`.
+    if (techAdjustment !== 0) {
+      const tp = await this.prisma.technicianProfile.findUnique({
+        where: { userId: mission.technicianId },
+        select: { id: true, walletBalance: true },
+      });
+      if (tp) {
+        const newBalance = tp.walletBalance + techAdjustment;
+        await this.prisma.$transaction([
+          this.prisma.technicianProfile.update({
+            where: { id: tp.id },
+            data: { walletBalance: newBalance },
+          }),
+          this.prisma.walletTransaction.create({
+            data: {
+              technicianProfileId: tp.id,
+              type: 'CANCELLATION_FEE',
+              amount: techAdjustment,
+              balanceAfter: newBalance,
+              description:
+                techAdjustment >= 0
+                  ? `Frais de déplacement et diagnostic (annulation par le client)`
+                  : `Régularisation suite à l'annulation du client (frais conservés : ${techFee} XAF)`,
+              referenceId: mission.id,
+              referenceType: 'MISSION',
+            },
+          }),
+        ]);
+      }
+    }
+
+    this.logger.log(
+      `Cancellation settled for mission ${mission.id}: client paid ${paidByClient}, tech keeps ${techFee} (adj ${techAdjustment}), client refund ${clientRefund}`,
+    );
+    return { techFee, clientRefund };
+  }
+
+  /**
+   * §9.1 — SOS / emergency alert raised by a client or technician during an
+   * active mission. Notifies the support/agent team with the caller's identity,
+   * mission and live location so they can intervene (and call the police).
+   * Returns the support hotline for an immediate `tel:` fallback on the client.
+   */
+  async raiseSosAlert(
+    missionId: string,
+    userId: string,
+    dto: { latitude?: number; longitude?: number; message?: string },
+  ): Promise<{ supportPhone: string }> {
+    const mission = await this.prisma.mission.findUnique({
+      where: { id: missionId },
+      include: { need: { select: { title: true } } },
+    });
+    if (!mission) throw new NotFoundException('Mission introuvable');
+    if (mission.clientId !== userId && mission.technicianId !== userId) {
+      throw new ForbiddenException('Accès non autorisé');
+    }
+
+    const caller = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, phone: true, role: true },
+    });
+    const callerName = `${caller?.firstName ?? ''} ${caller?.lastName ?? ''}`.trim() || 'Utilisateur';
+    const locPart =
+      dto.latitude != null && dto.longitude != null
+        ? ` Position: https://maps.google.com/?q=${dto.latitude},${dto.longitude}`
+        : '';
+
+    // Alert every support agent / admin.
+    const staff = await this.prisma.user.findMany({
+      where: { role: { in: ['ADMIN', 'AGENT'] } },
+      select: { id: true },
+    });
+    const body = `🚨 SOS de ${callerName} (${caller?.phone ?? 'tel inconnu'}) — mission « ${mission.need?.title ?? 'Mission'} ».${dto.message ? ` « ${dto.message} »` : ''}${locPart}`;
+    await Promise.all(
+      staff.map((s) =>
+        this.notificationsService
+          .createNotification({
+            userId: s.id,
+            type: 'SYSTEM',
+            title: '🚨 Alerte SOS',
+            body,
+            data: {
+              missionId,
+              callerId: userId,
+              latitude: dto.latitude,
+              longitude: dto.longitude,
+            },
+          })
+          .catch(() => undefined),
+      ),
+    );
+
+    this.logger.warn(
+      `SOS ALERT — mission ${missionId} by ${userId} (${callerName}).${locPart} ${dto.message ?? ''}`,
+    );
+
+    const supportPhone = process.env.SUPPORT_PHONE || '+237000000000';
+    return { supportPhone };
+  }
+
   async cancelMission(missionId: string, userId: string, dto: CancelMissionDto) {
     const mission = await this.prisma.mission.findUnique({
       where: { id: missionId },
@@ -681,6 +977,15 @@ export class MissionsService {
       throw new BadRequestException('Cette mission ne peut plus être annulée');
     }
 
+    const isClient = mission.clientId === userId;
+
+    // §6.1 — when the client cancels after paying, settle the split:
+    // 5 000 XAF to the technician (travel + diagnosis), the rest refunded.
+    let settlement: { techFee: number; clientRefund: number } | null = null;
+    if (isClient) {
+      settlement = await this.settleClientCancellation(mission);
+    }
+
     const updated = await this.prisma.mission.update({
       where: { id: missionId },
       data: {
@@ -692,7 +997,6 @@ export class MissionsService {
     });
 
     // Notify the other party about cancellation
-    const isClient = mission.clientId === userId;
     const otherUserId = isClient ? mission.technicianId : mission.clientId;
     const otherUser = await this.prisma.user.findUnique({ where: { id: otherUserId }, select: { email: true, firstName: true } });
     if (otherUser?.email) {
@@ -792,18 +1096,21 @@ export class MissionsService {
   }
 
   // ==========================================
-  // ADDITIONAL QUOTATION DURING MISSION
+  // ON-SITE QUOTATION DURING MISSION
   // ==========================================
 
-  async createAdditionalQuotation(
+  async createOnSiteQuotation(
     missionId: string,
     technicianId: string,
-    dto: CreateAdditionalQuotationDto,
+    dto: CreateOnSiteQuotationDto,
   ) {
     const mission = await this.getMissionForTechnician(missionId, technicianId);
 
-    if (mission.status !== 'IN_PROGRESS') {
-      throw new BadRequestException('La mission doit être en cours pour créer un devis additionnel');
+    // Allow on-site quotes during planning (SCHEDULED) as well as in progress —
+    // a technician can quote materials/labour after the visit is planned,
+    // without having to "start" the mission first.
+    if (mission.status !== 'IN_PROGRESS' && mission.status !== 'SCHEDULED') {
+      throw new BadRequestException('La mission doit être planifiée ou en cours pour créer un devis sur site');
     }
 
     // Default urgencyLevel to the need's urgency if not provided
@@ -840,12 +1147,12 @@ export class MissionsService {
       },
     });
 
-    // Notify client about additional quotation
+    // Notify client about on-site quote
     const client = await this.prisma.user.findUnique({ where: { id: mission.clientId }, select: { email: true, firstName: true } });
     const tech = await this.prisma.user.findUnique({ where: { id: technicianId }, select: { firstName: true, lastName: true } });
     const need = await this.prisma.need.findUnique({ where: { id: mission.needId }, select: { title: true } });
     if (client?.email) {
-      await this.mailService.sendAdditionalQuotation(client.email, {
+      await this.mailService.sendOnSiteQuotation(client.email, {
         clientName: client.firstName || 'Client',
         technicianName: `${tech?.firstName || ''} ${tech?.lastName || ''}`.trim(),
         needTitle: need?.title || 'Mission',
@@ -959,7 +1266,7 @@ export class MissionsService {
       _count: {
         select: {
           documents: true,
-          additionalQuotations: true,
+          onSiteQuotations: true,
         },
       },
     } as const;
@@ -1020,7 +1327,7 @@ export class MissionsService {
       documents: {
         orderBy: { createdAt: 'desc' as const },
       },
-      additionalQuotations: {
+      onSiteQuotations: {
         include: { images: true },
         orderBy: { createdAt: 'desc' as const },
       },
@@ -1065,7 +1372,7 @@ export class MissionsService {
             existingPayment.transactionId,
           );
 
-          if (depositStatus.status === 'COMPLETED' || depositStatus.status === 'FOUND') {
+          if (depositStatus.status === 'COMPLETED') {
             await this.onMissionPaymentConfirmed(existingPayment.id);
             return {
               paymentId: existingPayment.id,

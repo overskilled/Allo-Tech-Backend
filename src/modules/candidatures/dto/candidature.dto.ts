@@ -29,11 +29,12 @@ export class SubmitCandidatureDto {
   @IsDateString()
   proposedDate?: string;
 
-  @ApiPropertyOptional({ description: 'Proposed price for the service' })
-  @IsOptional()
+  // A technician must always state their price when applying — it is the core of
+  // a candidature and lets the client compare offers.
+  @ApiProperty({ description: 'Proposed price for the service (required)' })
   @IsNumber()
-  @Min(0)
-  proposedPrice?: number;
+  @Min(1)
+  proposedPrice: number;
 }
 
 export class UpdateCandidatureDto {

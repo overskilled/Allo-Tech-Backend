@@ -50,10 +50,10 @@ export class CreateNeedDto {
   @IsString()
   preferredTimeSlot?: string;
 
-  @ApiPropertyOptional({ description: 'Estimated budget minimum' })
+  @ApiPropertyOptional({ description: 'Estimated labour budget minimum (min 5 000 XAF)' })
   @IsOptional()
   @IsNumber()
-  @Min(0)
+  @Min(5000, { message: "Le budget main d'œuvre doit être d'au moins 5 000 XAF" })
   budgetMin?: number;
 
   @ApiPropertyOptional({ description: 'Estimated budget maximum' })
@@ -143,10 +143,10 @@ export class UpdateNeedDto {
   @IsString()
   preferredTimeSlot?: string;
 
-  @ApiPropertyOptional({ description: 'Estimated budget minimum' })
+  @ApiPropertyOptional({ description: 'Estimated labour budget minimum (min 5 000 XAF)' })
   @IsOptional()
   @IsNumber()
-  @Min(0)
+  @Min(5000, { message: "Le budget main d'œuvre doit être d'au moins 5 000 XAF" })
   budgetMin?: number;
 
   @ApiPropertyOptional({ description: 'Estimated budget maximum' })

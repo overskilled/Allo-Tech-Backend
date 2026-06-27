@@ -18,6 +18,11 @@ import {
 } from './dto/quotation.dto';
 import { createPaginatedResult } from '../../common/dto/pagination.dto';
 import { QuotationStatus } from '@prisma/client';
+import {
+  computeQuotationFinancials,
+  meetsMinimumLabor,
+  MIN_LABOR_XAF,
+} from './quotation-financials';
 import { Decimal } from '@prisma/client/runtime/library';
 import { MissionsService } from '../missions/missions.service';
 import { MailService } from '../mail/mail.service';
@@ -83,6 +88,14 @@ export class QuotationsService {
       throw new BadRequestException('You already have a quotation for this need');
     }
 
+    // A mission cannot be created below the labour floor (5 000 XAF). Guarded at
+    // the DTO too; re-checked here so the rule holds for every code path.
+    if (!meetsMinimumLabor(dto.laborCost)) {
+      throw new BadRequestException(
+        `Le budget main d'œuvre doit être d'au moins ${MIN_LABOR_XAF} XAF`,
+      );
+    }
+
     // Calculate costs enrich each material with computed totalPrice
     const enrichedMaterials = dto.materials.map((m) => ({
       ...m,
@@ -102,6 +115,7 @@ export class QuotationsService {
         laborCost: dto.laborCost,
         materialsCost,
         totalCost,
+        paymentScope: dto.paymentScope ?? 'FULL',
         validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
         status: 'DRAFT',
       },
@@ -809,7 +823,7 @@ export class QuotationsService {
   async payQuotation(
     quotationId: string,
     clientId: string,
-    dto: { phoneNumber: string; operator: string },
+    dto: { phoneNumber: string; operator: string; paymentScope?: 'FULL' | 'LABOR_ONLY' },
   ) {
     const quotation = await this.prisma.quotation.findUnique({
       where: { id: quotationId },
@@ -821,6 +835,16 @@ export class QuotationsService {
 
     if (!quotation) throw new NotFoundException('Devis introuvable');
     if (quotation.need.clientId !== clientId) throw new ForbiddenException('Non autorisé');
+
+    // The client chooses the payment scope at pay time (full devis vs labour
+    // only). Persist it so the credit/invoice use the same basis.
+    if (dto.paymentScope && dto.paymentScope !== quotation.paymentScope) {
+      await this.prisma.quotation.update({
+        where: { id: quotationId },
+        data: { paymentScope: dto.paymentScope },
+      });
+      quotation.paymentScope = dto.paymentScope;
+    }
 
     const payableStatuses = ['ACCEPTED', 'AWAITING_PAYMENT'];
     if (!payableStatuses.includes(quotation.status)) {
@@ -883,7 +907,14 @@ export class QuotationsService {
       });
     }
 
-    const amount = Number(quotation.totalCost ?? 0);
+    // Client is charged the scope-based amount: full devis (labour + materials)
+    // or labour only when the client provides the materials themselves — plus a
+    // 2.5% mobile-money transfer fee on top.
+    const { clientPays: amount, baseAmount, transferFee } = computeQuotationFinancials({
+      laborCost: Number(quotation.laborCost),
+      materialsCost: Number(quotation.materialsCost),
+      paymentScope: quotation.paymentScope,
+    });
 
     // Initiate PawaPay deposit
     const pawapayResult = await this.pawaPayService.initiateDeposit({
@@ -932,6 +963,8 @@ export class QuotationsService {
       paymentId: payment.id,
       depositId,
       amount,
+      baseAmount,
+      transferFee,
       currency: quotation.currency,
       status: pawapayResult.status,
       message: 'Paiement initié. Validez sur votre téléphone.',
@@ -963,18 +996,30 @@ export class QuotationsService {
     });
     if (!quotation) return;
 
-    const amount = Number(quotation.totalCost);
+    // Split the payment: technician receives materials + 95% of labour; the
+    // platform keeps 5% of labour. The technician is credited the NET payout,
+    // never the gross — that is what fixed "tech paid the full amount".
+    const financials = computeQuotationFinancials({
+      laborCost: Number(quotation.laborCost),
+      materialsCost: Number(quotation.materialsCost),
+      paymentScope: quotation.paymentScope,
+    });
+    const amount = financials.technicianPayout;
     const techProfile = quotation.technician.technicianProfile;
     const newBalance = techProfile ? techProfile.walletBalance + amount : amount;
 
     // Generate invoice number from quotation id
     const invoiceNumber = `INV-${quotationId.slice(0, 8).toUpperCase()}-${Date.now().toString().slice(-6)}`;
 
-    // Atomic: mark PAID + mark payment completed + credit tech wallet
+    // Atomic: mark PAID (+ commission/payout for audit) + complete payment + credit tech net
     await this.prisma.$transaction([
       this.prisma.quotation.update({
         where: { id: quotationId },
-        data: { status: 'PAID' },
+        data: {
+          status: 'PAID',
+          platformCommission: financials.platformCommission,
+          payoutAmount: financials.technicianPayout,
+        },
       }),
       this.prisma.payment.update({
         where: { id: paymentId },
@@ -991,13 +1036,25 @@ export class QuotationsService {
             type: 'MISSION_CREDIT',
             amount,
             balanceAfter: newBalance,
-            description: `Paiement devis « ${quotation.need.title} »`,
+            description: `Paiement devis « ${quotation.need.title} » (net, commission ${financials.platformCommission} XAF)`,
             referenceId: quotationId,
             referenceType: 'QUOTATION',
           },
         }),
       ] : []),
     ]);
+
+    // When the client chose "main d'œuvre uniquement", warn the technician not
+    // to buy materials (they're only paid for labour).
+    if (quotation.paymentScope === 'LABOR_ONLY') {
+      await this.notificationsService.createNotification({
+        userId: quotation.technicianId,
+        type: 'PAYMENT',
+        title: 'Le client fournit le matériel',
+        body: `Pour « ${quotation.need.title} », le client a choisi de fournir le matériel lui-même. N'achetez pas de matériel : vous êtes rémunéré pour la main d'œuvre uniquement (${financials.technicianPayout.toLocaleString('fr-FR')} XAF).`,
+        data: { quotationId, needId: quotation.need.id, paymentScope: 'LABOR_ONLY' },
+      });
+    }
 
     // Fetch client info for emails
     const clientUser = await this.prisma.user.findUnique({
@@ -1070,68 +1127,6 @@ export class QuotationsService {
     });
 
     this.logger.log(`Quotation ${quotationId} paid. ${amount} XAF credited to tech ${quotation.technicianId}. Invoice ${invoiceNumber} sent.`);
-  }
-
-  /**
-   * Client pays with cash marks quotation as PAID immediately and creates a CASH Payment record.
-   * Cash payments do NOT credit the technician wallet (funds are collected directly on-site).
-   * They are tracked as platform-generated revenue only.
-   */
-  async confirmCashPayment(quotationId: string, clientId: string) {
-    const quotation = await this.prisma.quotation.findUnique({
-      where: { id: quotationId },
-      include: {
-        need: { select: { id: true, title: true, clientId: true } },
-      },
-    });
-
-    if (!quotation) throw new NotFoundException('Devis introuvable');
-    if (quotation.need.clientId !== clientId) throw new ForbiddenException('Non autorisé');
-    if (quotation.status !== 'ACCEPTED') {
-      throw new BadRequestException(
-        `Le devis doit être accepté pour un paiement en espèces (statut actuel: ${quotation.status})`,
-      );
-    }
-
-    const amount = Number(quotation.totalCost ?? 0);
-    const invoiceNumber = `INV-${quotationId.slice(0, 8).toUpperCase()}-${Date.now().toString().slice(-6)}`;
-
-    // Create CASH payment record (revenue tracking only no wallet credit)
-    const payment = await this.prisma.payment.create({
-      data: {
-        clientId,
-        technicianId: quotation.technicianId,
-        amount,
-        currency: quotation.currency,
-        paymentMethod: 'CASH',
-        status: 'COMPLETED',
-        paymentDetails: JSON.stringify({
-          purpose: 'quotation_payment',
-          quotationId,
-          needId: quotation.need.id,
-          paymentMethod: 'CASH',
-        }),
-      },
-    });
-
-    // Mark quotation as PAID (no wallet transaction for cash)
-    await this.prisma.quotation.update({
-      where: { id: quotationId },
-      data: { status: 'PAID', heldPaymentId: payment.id, heldAmount: amount },
-    });
-
-    // Notify technician cash collected on-site, no wallet credit
-    await this.notificationsService.createNotification({
-      userId: quotation.technicianId,
-      type: 'PAYMENT',
-      title: 'Paiement en espèces confirmé',
-      body: `Le client a confirmé le paiement de ${amount.toLocaleString('fr-FR')} XAF en espèces pour « ${quotation.need.title} ».`,
-      data: { quotationId, needId: quotation.need.id, invoiceNumber },
-    });
-
-    this.logger.log(`Quotation ${quotationId} paid in cash (${amount} XAF). Revenue tracked, no wallet credit.`);
-
-    return { paymentId: payment.id, amount, currency: quotation.currency, status: 'COMPLETED' };
   }
 
   /**
@@ -1228,6 +1223,10 @@ export class QuotationsService {
       laborCost: Number(quotation.laborCost),
       materialsCost: Number(quotation.materialsCost),
       totalCost: Number(quotation.totalCost),
+      paymentScope: quotation.paymentScope ?? 'FULL',
+      platformCommission:
+        quotation.platformCommission != null ? Number(quotation.platformCommission) : null,
+      payoutAmount: quotation.payoutAmount != null ? Number(quotation.payoutAmount) : null,
     };
   }
 

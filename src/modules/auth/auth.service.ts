@@ -259,7 +259,11 @@ export class AuthService {
       const isNewUser = !user;
 
       if (!user) {
-        // Create new user from Google data
+        // Create new user from Google data. Honour the intended role from the
+        // signup flow ("Devenir un technicien" → TECHNICIAN); default CLIENT.
+        // For existing users we never touch the role below.
+        const intendedRole =
+          dto.role === 'TECHNICIAN' ? UserRole.TECHNICIAN : UserRole.CLIENT;
         user = await this.prisma.user.create({
           data: {
             email,
@@ -269,6 +273,7 @@ export class AuthService {
             authProvider: 'google',
             profileImage: picture,
             emailVerified: true,
+            role: intendedRole,
             status: UserStatus.PENDING_VERIFICATION, // Still needs to complete profile
           },
         });

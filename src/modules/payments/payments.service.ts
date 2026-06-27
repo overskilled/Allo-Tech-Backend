@@ -335,14 +335,18 @@ export class PaymentsService {
     // ── Wallet deposit (no Payment record handled directly) ──────────────
     const meta = metadata ?? {};
     if (meta.purpose === 'wallet_deposit' && meta.technicianProfileId) {
-      if (status === 'COMPLETED' || status === 'FOUND') {
+      // Only a true COMPLETED settles the deposit. 'FOUND' is PawaPay's
+      // status-lookup envelope ("the record exists"), NOT a payment outcome —
+      // crediting on it accepted deposits that had actually failed or were
+      // still pending ("faux dépôts").
+      if (status === 'COMPLETED') {
         await this.creditTechnicianWallet(
           meta.technicianProfileId,
           Number(payload.amount ?? meta.amount ?? 0),
           depositId,
         );
       } else {
-        this.logger.warn(`Wallet deposit ${depositId} failed: ${status}`);
+        this.logger.warn(`Wallet deposit ${depositId} not completed (status=${status})`);
       }
       return { received: true };
     }
@@ -357,7 +361,7 @@ export class PaymentsService {
       return { received: true };
     }
 
-    if (status === 'COMPLETED' || status === 'FOUND') {
+    if (status === 'COMPLETED') {
       await this.completePayment(payment.id, { pawaPayStatus: status });
     } else if (status === 'FAILED') {
       await this.prisma.payment.update({
@@ -387,6 +391,17 @@ export class PaymentsService {
     });
     if (!profile) {
       this.logger.warn(`TechnicianProfile ${technicianProfileId} not found for deposit ${depositId}`);
+      return;
+    }
+    // Idempotency: PawaPay retries webhooks, so a deposit can arrive more than
+    // once. Skip if we've already booked a WALLET_DEPOSIT for this depositId,
+    // otherwise the balance is credited multiple times for one real payment.
+    const alreadyCredited = await this.prisma.walletTransaction.findFirst({
+      where: { referenceId: depositId, referenceType: 'DEPOSIT', type: 'WALLET_DEPOSIT' },
+      select: { id: true },
+    });
+    if (alreadyCredited) {
+      this.logger.warn(`Deposit ${depositId} already credited, skipping duplicate webhook`);
       return;
     }
     const newBalance = profile.walletBalance + amount;

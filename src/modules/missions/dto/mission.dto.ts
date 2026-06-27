@@ -84,7 +84,7 @@ export class MaterialItemDto {
   unitPrice: number;
 }
 
-export class CreateAdditionalQuotationDto {
+export class CreateOnSiteQuotationDto {
   @ApiProperty({ description: 'State of work / assessment' })
   @IsString()
   @MaxLength(2000)

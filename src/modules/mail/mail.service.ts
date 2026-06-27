@@ -316,11 +316,11 @@ const TEMPLATES = {
     `),
   }),
 
-  ADDITIONAL_QUOTATION: (data: { clientName: string; technicianName: string; needTitle: string; totalCost: string }) => ({
-    subject: 'Devis additionnel reçu - AlloTech',
+  ONSITE_QUOTATION: (data: { clientName: string; technicianName: string; needTitle: string; totalCost: string }) => ({
+    subject: 'Devis sur site reçu - AlloTech',
     html: wrap('#fab829', `
       <h2 style="color: #111827;">Bonjour ${data.clientName},</h2>
-      <p style="color: #374151;"><strong>${data.technicianName}</strong> a soumis un devis additionnel pour la mission <strong>"${data.needTitle}"</strong>.</p>
+      <p style="color: #374151;"><strong>${data.technicianName}</strong> a soumis un devis sur site pour la mission <strong>"${data.needTitle}"</strong>.</p>
       ${infoBox(`${row('Montant', `${data.totalCost} XAF`)}`)}
       <p style="color: #374151;">Consultez et répondez au devis dans l'application.</p>
       ${btn('#', 'Voir le devis', '#fab829')}
@@ -653,8 +653,8 @@ export class MailService {
     return this.send({ to, ...template });
   }
 
-  async sendAdditionalQuotation(to: string, data: { clientName: string; technicianName: string; needTitle: string; totalCost: string }) {
-    const template = TEMPLATES.ADDITIONAL_QUOTATION(data);
+  async sendOnSiteQuotation(to: string, data: { clientName: string; technicianName: string; needTitle: string; totalCost: string }) {
+    const template = TEMPLATES.ONSITE_QUOTATION(data);
     return this.send({ to, ...template });
   }
 
