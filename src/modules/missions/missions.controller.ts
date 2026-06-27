@@ -238,7 +238,9 @@ export class MissionsController {
   // ON-SITE QUOTATION
   // ==========================================
 
-  @Post(':id/on-site-quotation')
+  // Accept the legacy `additional-quotation` path too — released app builds
+  // (≤ ALLOTECH/13) still POST to it; the route was renamed to on-site-quotation.
+  @Post([':id/on-site-quotation', ':id/additional-quotation'])
   @ApiOperation({ summary: 'Create on-site quote during mission (Technician)' })
   @ApiParam({ name: 'id', description: 'Mission ID' })
   @ApiResponse({ status: 201, description: 'On-site quote created' })

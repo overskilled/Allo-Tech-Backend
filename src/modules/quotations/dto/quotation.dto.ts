@@ -10,7 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { QuotationStatus, NeedUrgency, PaymentScope } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { MIN_LABOR_XAF } from '../quotation-financials';
@@ -155,6 +155,9 @@ export class SignQuotationDto {
 export class QueryQuotationsDto extends PaginationDto {
   @ApiPropertyOptional({ enum: QuotationStatus, description: 'Filter by status' })
   @IsOptional()
+  // Legacy app builds (≤ ALLOTECH/13) send the old "SUBMITTED" status; the
+  // backend enum uses SENT. Map it so the filter doesn't 400.
+  @Transform(({ value }) => (value === 'SUBMITTED' ? 'SENT' : value))
   @IsEnum(QuotationStatus)
   status?: QuotationStatus;
 
